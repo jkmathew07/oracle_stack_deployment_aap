@@ -1,0 +1,33 @@
+---
+- name: Inspect OPatch deployment marker
+  ansible.builtin.stat:
+    path: "{{ opatch_home }}/.automation-opatch-{{ deployment_plan.release_cfg.OPATCH_ZIP.sha256 }}"
+  register: update_opatch_opatch_marker
+  become: true
+
+- name: Update Oracle OPatch from verified media
+  ansible.builtin.unarchive:
+    src: "{{ deployment_plan.release_cfg.OPATCH_ZIP.path }}"
+    dest: "{{ opatch_home }}"
+    remote_src: true
+    owner: "{{ opatch_owner }}"
+    group: oinstall
+  become: true
+  when: not update_opatch_opatch_marker.stat.exists
+
+- name: Verify OPatch executable and version
+  ansible.builtin.command:
+    argv: ["{{ opatch_home }}/OPatch/opatch", version]
+  become: true
+  become_user: "{{ opatch_owner }}"
+  changed_when: false
+
+- name: Mark deployed approved OPatch media
+  ansible.builtin.file:
+    path: "{{ opatch_home }}/.automation-opatch-{{ deployment_plan.release_cfg.OPATCH_ZIP.sha256 }}"
+    state: touch
+    owner: "{{ opatch_owner }}"
+    group: oinstall
+    mode: '0640'
+  become: true
+  when: not update_opatch_opatch_marker.stat.exists

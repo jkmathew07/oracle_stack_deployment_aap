@@ -1,0 +1,126 @@
+---
+- name: Inspect current DB Home registration
+  ansible.builtin.stat:
+    path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: install_db_db_inventory_stat
+  become: true
+  when: deployment_plan.install_db
+
+- name: Read DB Home registration
+  ansible.builtin.slurp:
+    src: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: install_db_db_inventory_xml
+  become: true
+  when: deployment_plan.install_db and install_db_db_inventory_stat.stat.exists
+
+- name: Compute whether DB Home install is needed
+  ansible.builtin.set_fact:
+    install_db_db_install_needed: >-
+      {{ deployment_plan.install_db and ('LOC="' ~ deployment_plan.release_cfg.DB_HOME ~ '"' not in
+      (install_db_db_inventory_xml.content | default('') | b64decode)) }}
+
+- name: Install Oracle Database software
+  become: true
+  when: install_db_db_install_needed
+  block:
+    - name: Create Oracle directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: oracle
+        group: oinstall
+        state: directory
+        mode: '0775'
+      loop:
+        - "{{ deployment_plan.release_cfg.DB_HOME }}"
+        - "{{ deployment_plan.release_cfg.DB_BASE }}"
+
+    - name: Unpack approved Database image
+      ansible.builtin.unarchive:
+        src: "{{ deployment_plan.release_cfg.DB_MEDIA.path }}"
+        dest: "{{ deployment_plan.release_cfg.DB_HOME }}"
+        remote_src: true
+        creates: "{{ deployment_plan.release_cfg.DB_HOME }}/runInstaller"
+        owner: oracle
+        group: oinstall
+
+    - name: Write Database response file
+      ansible.builtin.template:
+        src: db.rsp.j2
+        dest: "{{ deployment_plan.release_cfg.DB_HOME }}/db.rsp"
+        owner: oracle
+        group: oinstall
+        mode: '0600'
+      no_log: true
+
+    - name: Update OPatch before RU installation
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.update_opatch
+      vars:
+        opatch_home: "{{ deployment_plan.release_cfg.DB_HOME }}"
+        opatch_owner: oracle
+      when: deployment_plan.patch_db
+
+    - name: Stage approved DB RU before installer uses it
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.stage_patch
+      vars:
+        patch_data: "{{ deployment_plan.release_cfg.DB_RU }}"
+        patch_owner: oracle
+      when: deployment_plan.patch_db
+
+    - name: Install DB Home with approved RU
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/runInstaller"
+          - -silent
+          - -responseFile
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/db.rsp"
+          - -applyRU
+          - "{{ deployment_plan.release_cfg.DB_RU.dir }}"
+          - -waitForCompletion
+      become: true
+      become_user: oracle
+      changed_when: true
+      async: 7200
+      poll: 30
+      when: deployment_plan.patch_db
+
+    - name: Install DB Home without RU on an approved EL8 host
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/runInstaller"
+          - -silent
+          - -responseFile
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/db.rsp"
+          - -waitForCompletion
+      become: true
+      become_user: oracle
+      changed_when: true
+      async: 7200
+      poll: 30
+      when: not deployment_plan.patch_db
+
+    - name: Run DB Home root script
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/root.sh"]
+      changed_when: true
+      async: 1800
+      poll: 30
+
+- name: Verify Database executable exists
+  ansible.builtin.stat:
+    path: "{{ deployment_plan.release_cfg.DB_HOME }}/bin/oracle"
+  register: install_db_oracle_binary
+  become: true
+  when: deployment_plan.install_db
+
+- name: Assert DB Home installation completed
+  ansible.builtin.assert:
+    that: install_db_oracle_binary.stat.exists | default(false)
+  when: deployment_plan.install_db
+
+- name: Publish Database install-time RU state
+  ansible.builtin.set_stats:
+    data:
+      db_ru_installed_at_install: "{{ install_db_db_install_needed and deployment_plan.patch_db }}"
+  when: deployment_plan.install_db

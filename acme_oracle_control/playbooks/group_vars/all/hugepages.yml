@@ -1,0 +1,21 @@
+---
+# ==============================================================================
+# FILE: playbooks/group_vars/all/hugepages.yml
+# PURPOSE: HugePages sizing policy, read by configure_baseline's HugePages
+#   task block. nr_hugepages is always calculated from actual server RAM
+#   (target_pct) unless an explicit override already meets min_pct — never
+#   a hardcoded page count. This mirrors the same policy Oracle's own
+#   installation guides recommend and that the pre-hardening design used;
+#   it was dropped in the 2.0.0 hardening pass and is restored here.
+# ==============================================================================
+
+oracle_hugepages:
+  # Explicit override, in pages. Leave at 0 to always auto-calculate from RAM.
+  nr: 0
+  # Target percentage of total RAM to back with HugePages when auto-calculating.
+  target_pct: 56
+
+hugepages_validation:
+  # If an explicit override (oracle_hugepages.nr) is set, it must still cover
+  # at least this percentage of RAM or the auto-calculated value is used instead.
+  min_pct: 54

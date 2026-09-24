@@ -1,0 +1,39 @@
+---
+# ==============================================================================
+# FILE: group_vars/all/os_config/os_users.yml
+# PURPOSE: Oracle and Grid OS user definitions.
+#   configure_os_user worker reads these based on:
+#     grid_configuration_enabled  → create grid user
+#     oracle_configuration_enabled → create oracle user
+# ==============================================================================
+
+oracle_users:
+  oracle:
+    username:         oracle
+    user_id:          54321
+    primary_group:    oinstall
+    secondary_groups:
+      - dba
+      - oper
+      - backupdba
+      - dgdba
+      - kmdba
+      - racdba
+      - asmdba
+    home:    /home/oracle
+    shell:   /bin/bash
+    comment: "Oracle Database User"
+
+  grid:
+    username:         grid
+    user_id:          54331
+    primary_group:    oinstall
+    secondary_groups:
+      - dba
+      - racdba
+      - asmdba
+      - asmadmin 
+      - asmoper
+    home:    /home/grid
+    shell:   /bin/bash
+    comment: "Oracle Grid Infrastructure User"

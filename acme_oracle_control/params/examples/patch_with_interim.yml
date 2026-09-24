@@ -1,0 +1,15 @@
+---
+# Applies the RU (if not already applied) then any GRID_INTERIM_PATCHES /
+# DB_INTERIM_PATCHES entries approved in config/releases/19c.yml. Interim
+# patches are best-effort: a conflict is logged as a warning by
+# patch_grid_oneoffs / patch_db_oneoffs, not a deployment failure, since the
+# RU alone already brings the home to a valid, supported state. Populate
+# GRID_INTERIM_PATCHES / DB_INTERIM_PATCHES with real approved entries before
+# this has anything to apply — both default to an empty list.
+hostname: ora-stage-01.example.internal
+deploy_environment: staging
+oracle_release: '19c'
+install_grid: false
+install_db_home: false
+patch: both
+change_ticket: CHG-12348

@@ -1,0 +1,70 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════
+# KERNEL PARAMETERS
+# ═══════════════════════════════════════════════════════════════════════════
+kernel_parameters:
+  # File system parameters
+  - name: fs.file-max
+    value: "6815744"
+    description: "Maximum number of file handles"
+  
+  - name: fs.aio-max-nr
+    value: "1048576"
+    description: "Maximum asynchronous I/O requests"
+  
+  # Semaphore parameters
+  - name: kernel.sem
+    value: "250 32000 100 128"
+    description: "Semaphore settings (SEMMSL SEMMNS SEMOPM SEMMNI)"
+  
+  # Shared memory parameters
+  - name: kernel.shmall
+    value: "2097152"
+    description: "Total shared memory pages"
+  
+  - name: kernel.shmmax
+    value: "4398046511104"
+    description: "Maximum shared memory segment size"
+  
+  - name: kernel.shmmni
+    value: "4096"
+    description: "Maximum shared memory segments"
+  
+  # Network parameters
+  - name: net.ipv4.ip_local_port_range
+    value: "9000 65500"
+    description: "Local port range for connections"
+  
+  - name: net.core.rmem_default
+    value: "262144"
+    description: "Default receive socket buffer"
+  
+  - name: net.core.rmem_max
+    value: "4194304"
+    description: "Maximum receive socket buffer"
+  
+  - name: net.core.wmem_default
+    value: "262144"
+    description: "Default send socket buffer"
+  
+  - name: net.core.wmem_max
+    value: "1048576"
+    description: "Maximum send socket buffer"
+  
+  # Virtual memory parameters
+  - name: vm.swappiness
+    value: "10"
+    description: "Swappiness (lower = less swap usage)"
+  
+  - name: vm.dirty_background_ratio
+    value: "3"
+    description: "Dirty page background flush ratio"
+  
+  - name: vm.dirty_ratio
+    value: "15"
+    description: "Dirty page flush ratio"
+  
+  # Process parameters
+  - name: kernel.panic_on_oops
+    value: "1"
+    description: "Panic on kernel oops"

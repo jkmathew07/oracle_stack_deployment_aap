@@ -1,0 +1,49 @@
+---
+aap_organization: Oracle Automation
+aap_project_name: Oracle Deploy 2.0
+aap_project_scm_url: https://git.example.internal/oracle/control.git
+aap_project_scm_branch: release/2.0.0
+aap_project_scm_credential: Oracle Control SCM - Read Only
+# Repository root contains the three directories in this release bundle.
+aap_project_playbook_prefix: acme_oracle_control/
+aap_inventory_name: Oracle Targets
+aap_execution_environment: Oracle Deploy EE 2.0
+aap_machine_credential: Oracle Targets - Machine
+
+aap_nodes:
+  - {identifier: preflight, name: Oracle 00 Preflight, playbook: playbooks/00_preflight.yml}
+  - {identifier: baseline, name: Oracle 01 Baseline, playbook: playbooks/01_baseline.yml}
+  - {identifier: reboot, name: Oracle 02 Reboot, playbook: playbooks/02_reboot.yml}
+  - {identifier: grid_install, name: Oracle 03 Install Grid, playbook: playbooks/03_install_grid.yml}
+  - {identifier: grid_patch, name: Oracle 04 Patch Grid, playbook: playbooks/04_patch_grid.yml}
+  - {identifier: db_install, name: Oracle 05 Install DB, playbook: playbooks/05_install_db.yml}
+  - {identifier: db_patch, name: Oracle 06 Patch DB, playbook: playbooks/06_patch_db.yml}
+  - {identifier: verify, name: Oracle 07 Verify, playbook: playbooks/07_verify.yml}
+
+aap_workflows:
+  - name: Oracle Deploy - Dev/Staging
+    allowed: [dev, staging]
+    environment_choices: "dev\nstaging"
+  - name: Oracle Deploy - Prod
+    allowed: [prod]
+    environment_choices: prod
+
+aap_survey_spec:
+  name: Oracle deployment request
+  description: All media is verified on the target before changes.
+  spec:
+    - {question_name: Target inventory hostname, variable: hostname, type: text, required: true}
+    - {question_name: Environment, variable: deploy_environment, type: multiplechoice, choices: "dev\nstaging", required: true}
+    - {question_name: Oracle release, variable: oracle_release, type: multiplechoice, choices: "19c\n26ai", required: true}
+    - {question_name: "Install Grid?", variable: install_grid, type: multiplechoice, choices: "true\nfalse", required: true}
+    - {question_name: "Install DB Home?", variable: install_db_home, type: multiplechoice, choices: "true\nfalse", required: true}
+    - {question_name: Patch scope, variable: patch, type: multiplechoice, choices: "none\ngrid\ndb\nboth", required: true}
+    - {question_name: Approved change ticket, variable: change_ticket, type: text, required: true}
+
+aap_links:
+  - {from: baseline, to: reboot}
+  - {from: reboot, to: grid_install}
+  - {from: grid_install, to: grid_patch}
+  - {from: grid_patch, to: db_install}
+  - {from: db_install, to: db_patch}
+  - {from: db_patch, to: verify}

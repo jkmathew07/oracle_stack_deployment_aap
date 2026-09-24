@@ -1,0 +1,19 @@
+---
+# One process preserves deployment_plan and reboot facts between imported plays.
+# Production use is refused by Node 00; use the AAP workflow approval there.
+- name: Import 00_preflight.yml
+  import_playbook: 00_preflight.yml
+- name: Import 01_baseline.yml
+  import_playbook: 01_baseline.yml
+- name: Import 02_reboot.yml
+  import_playbook: 02_reboot.yml
+- name: Import 03_install_grid.yml
+  import_playbook: 03_install_grid.yml
+- name: Import 04_patch_grid.yml
+  import_playbook: 04_patch_grid.yml
+- name: Import 05_install_db.yml
+  import_playbook: 05_install_db.yml
+- name: Import 06_patch_db.yml
+  import_playbook: 06_patch_db.yml
+- name: Import 07_verify.yml
+  import_playbook: 07_verify.yml

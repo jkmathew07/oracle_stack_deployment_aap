@@ -1,0 +1,9 @@
+---
+# Import published and approved copies from Private Automation Hub.
+collections:
+  - name: acme.linux_baseline
+    version: '2.0.0'
+  - name: acme.oracle_rdbms
+    version: '2.0.0'
+  - name: ansible.posix
+    version: '2.1.0'

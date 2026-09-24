@@ -1,0 +1,5 @@
+---
+# Install ansible.controller from the same AAP 2.7 content registry as your
+# Automation Controller installation; qualify the exact collection version.
+collections:
+  - name: ansible.controller

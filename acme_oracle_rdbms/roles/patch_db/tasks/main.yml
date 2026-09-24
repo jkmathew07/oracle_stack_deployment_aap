@@ -1,0 +1,100 @@
+---
+- name: Patch requested Database Home
+  when: deployment_plan.patch_db
+  become: true
+  block:
+    - name: Reject active database instance during home maintenance
+      ansible.builtin.command:
+        argv: [pgrep, -f, '^ora_pmon_']
+      register: patch_db_db_pmon
+      changed_when: false
+      failed_when: false
+
+    - name: Require all databases on the home to be shut down
+      ansible.builtin.assert:
+        that: patch_db_db_pmon.rc == 1
+        fail_msg: Active Oracle instance or process check failed; stop databases under an approved change.
+
+    - name: Confirm DB Home is present
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch"
+      register: patch_db_db_opatch
+
+    - name: Fail when DB Home is unavailable
+      ansible.builtin.assert:
+        that: patch_db_db_opatch.stat.exists | default(false)
+
+    - name: Update OPatch from approved archive
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.update_opatch
+      vars:
+        opatch_home: "{{ deployment_plan.release_cfg.DB_HOME }}"
+        opatch_owner: oracle
+
+    - name: List installed DB Home patches
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch", lspatches]
+      changed_when: false
+      become: true
+      become_user: oracle
+      register: patch_db_db_patches_before
+
+    - name: Stage approved DB RU
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.stage_patch
+      vars:
+        patch_data: "{{ deployment_plan.release_cfg.DB_RU }}"
+        patch_owner: oracle
+      when: >-
+        deployment_plan.release_cfg.DB_RU.expected_patch_ids | difference(patch_db_db_patches_before.stdout |
+        regex_findall('(?m)^([0-9]{5,10});')) | length > 0
+
+    - name: Analyze DB RU for conflicts
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch"
+          - prereq
+          - CheckConflictAgainstOHWithDetail
+          - -phBaseDir
+          - "{{ deployment_plan.release_cfg.DB_RU.dir }}"
+          - -oh
+          - "{{ deployment_plan.release_cfg.DB_HOME }}"
+      become: true
+      become_user: oracle
+      changed_when: false
+      when: >-
+        deployment_plan.release_cfg.DB_RU.expected_patch_ids | difference(patch_db_db_patches_before.stdout |
+        regex_findall('(?m)^([0-9]{5,10});')) | length > 0
+
+    - name: Apply DB RU with OPatch
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch"
+          - apply
+          - -silent
+          - "{{ deployment_plan.release_cfg.DB_RU.dir }}"
+          - -oh
+          - "{{ deployment_plan.release_cfg.DB_HOME }}"
+      become: true
+      become_user: oracle
+      changed_when: true
+      async: 7200
+      poll: 30
+      when: >-
+        deployment_plan.release_cfg.DB_RU.expected_patch_ids | difference(patch_db_db_patches_before.stdout |
+        regex_findall('(?m)^([0-9]{5,10});')) | length > 0
+
+    - name: Verify installed DB RU ID
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch", lspatches]
+      become: true
+      become_user: oracle
+      changed_when: false
+      register: patch_db_db_patches_after
+
+    - name: Enforce requested DB RU state
+      ansible.builtin.assert:
+        that: >-
+          deployment_plan.release_cfg.DB_RU.expected_patch_ids | difference(patch_db_db_patches_after.stdout |
+          regex_findall('(?m)^([0-9]{5,10});')) | length == 0
+        fail_msg: DB RU not present in OPatch inventory after application.

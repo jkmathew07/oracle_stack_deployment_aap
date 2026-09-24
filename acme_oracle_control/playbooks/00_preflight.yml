@@ -1,0 +1,130 @@
+---
+- name: Validate request against approved inventory before connecting
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Validate survey schema and exact inventory hostname
+      ansible.builtin.assert:
+        that:
+          - hostname is defined
+          - hostname is string
+          - hostname in (groups['oracle_targets'] | default([]))
+          - deploy_environment is defined
+          - deploy_environment in ['dev', 'staging', 'prod']
+          - oracle_release is defined
+          - oracle_release in ['19c', '26ai']
+          - install_grid is defined
+          - install_grid in [true, false, 'true', 'false']
+          - install_db_home is defined
+          - install_db_home in [true, false, 'true', 'false']
+          - patch is defined
+          - patch in ['none', 'grid', 'db', 'both']
+          - change_ticket is defined
+          - change_ticket is string
+          - change_ticket is match('^[A-Z][A-Z0-9-]{3,63}$')
+          - hostvars[hostname].deployment_tier is defined
+          - hostvars[hostname].deployment_tier == deploy_environment
+        fail_msg: Invalid request, change ticket or target/environment inventory binding.
+
+    - name: Require AAP workflow approval for production
+      ansible.builtin.assert:
+        that:
+          # awx_workflow_job_id confirms this job is running as part of an AAP
+          # workflow, not a bare/ad-hoc Job Template launch. workflow_allowed_tiers
+          # is the actual trust anchor: it's an extra_var WE set explicitly on
+          # each Workflow Job Template in bootstrap_aap.yml (aap_workflows[].allowed),
+          # not a guess at an AAP-internal variable name. Only the Prod WFJT sets
+          # it to ['prod'], and only the Prod WFJT's graph routes through the
+          # approve_change approval node before this can be reached — so trusting
+          # workflow_allowed_tiers here is equivalent to trusting that the
+          # approval already happened, without this playbook needing to
+          # rediscover the workflow's own name or identity.
+          - awx_workflow_job_id is defined
+          - workflow_allowed_tiers | default([]) == ['prod']
+        fail_msg: >-
+          Production changes must run from the AAP production workflow
+          (workflow_allowed_tiers must be ['prod'] — see aap_bootstrap/bootstrap_vars.yml).
+          A CLI run or a non-prod workflow can never satisfy this.
+      when: deploy_environment == 'prod'
+
+    - name: Match the workflow's permitted environment
+      ansible.builtin.assert:
+        that: deploy_environment in (workflow_allowed_tiers | default(['dev', 'staging']))
+        fail_msg: This workflow does not own the requested environment.
+
+    - name: Load approved release configuration
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/releases/{{ oracle_release }}.yml"
+        name: approved_release
+
+    - name: Normalize deployment plan once
+      ansible.builtin.set_fact:
+        deployment_plan:
+          target: "{{ hostname }}"
+          environment: "{{ deploy_environment }}"
+          release: "{{ oracle_release }}"
+          ticket: "{{ change_ticket }}"
+          install_grid: "{{ install_grid | bool }}"
+          install_db: "{{ install_db_home | bool }}"
+          patch_grid: "{{ patch in ['grid', 'both'] }}"
+          patch_db: "{{ patch in ['db', 'both'] }}"
+          release_cfg: "{{ approved_release }}"
+          artifacts: >-
+            {{
+              ([approved_release.GRID_MEDIA | combine({'label':'Grid media'})] if install_grid | bool else []) +
+              ([approved_release.DB_MEDIA | combine({'label':'DB media'})] if install_db_home | bool else []) +
+              ([approved_release.GRID_RU | combine({'label':'Grid RU'})] if patch in ['grid', 'both'] else []) +
+              ([approved_release.DB_RU | combine({'label':'DB RU'})] if patch in ['db', 'both'] else []) +
+              ([approved_release.OPATCH_ZIP | combine({'label':'OPatch'})] if patch != 'none' else []) +
+              (approved_release.GRID_INTERIM_PATCHES | default([]) | selectattr('label', 'defined') | list
+                if patch in ['grid', 'both'] else []) +
+              (approved_release.DB_INTERIM_PATCHES | default([]) | selectattr('label', 'defined') | list
+                if patch in ['db', 'both'] else [])
+            }}
+
+    - name: Require a meaningful operation
+      ansible.builtin.assert:
+        that:
+          - deployment_plan.install_grid or deployment_plan.install_db or deployment_plan.patch_grid or deployment_plan.patch_db
+          - not deployment_plan.patch_grid or deployment_plan.release_cfg.GRID_RU.id is match('^[0-9]{5,10}$')
+          - not deployment_plan.patch_grid or deployment_plan.release_cfg.GRID_RU.expected_patch_ids | length > 0
+          - not deployment_plan.patch_grid or deployment_plan.release_cfg.GRID_RU.expected_patch_ids | reject('match', '^[0-9]{5,10}$') | list | length == 0
+          - not deployment_plan.patch_db or deployment_plan.release_cfg.DB_RU.id is match('^[0-9]{5,10}$')
+          - not deployment_plan.patch_db or deployment_plan.release_cfg.DB_RU.expected_patch_ids | length > 0
+          - not deployment_plan.patch_db or deployment_plan.release_cfg.DB_RU.expected_patch_ids | reject('match', '^[0-9]{5,10}$') | list | length == 0
+        fail_msg: No operation selected or approved patch manifest missing/invalid.
+
+    - name: Share validated plan with target in command-line runs
+      ansible.builtin.set_fact:
+        deployment_plan: "{{ deployment_plan }}"
+      delegate_to: "{{ hostname }}"
+      delegate_facts: true
+
+    - name: Publish plan to downstream workflow jobs
+      ansible.builtin.set_stats:
+        per_host: false
+        data:
+          deployment_plan: "{{ deployment_plan }}"
+
+    - name: Display plan for operator approval
+      ansible.builtin.debug:
+        msg:
+          target: "{{ deployment_plan.target }}"
+          environment: "{{ deployment_plan.environment }}"
+          change_ticket: "{{ deployment_plan.ticket }}"
+          release: "{{ deployment_plan.release }}"
+          install_grid: "{{ deployment_plan.install_grid }}"
+          patch_grid: "{{ deployment_plan.patch_grid }}"
+          install_db: "{{ deployment_plan.install_db }}"
+          patch_db: "{{ deployment_plan.patch_db }}"
+
+- name: Preflight the selected managed host
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: true
+  any_errors_fatal: true
+  tasks:
+    - name: Verify platform and approved Oracle artifacts
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.preflight

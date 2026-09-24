@@ -1,0 +1,15 @@
+---
+# Replace example hosts with CMDB-synced hosts before use.
+all:
+  children:
+    oracle_targets:
+      hosts:
+        ora-dev-01.example.internal:
+          ansible_host: 10.10.10.11
+          deployment_tier: dev
+        ora-stage-01.example.internal:
+          ansible_host: 10.20.10.11
+          deployment_tier: staging
+        ora-prod-01.example.internal:
+          ansible_host: 10.30.10.11
+          deployment_tier: prod

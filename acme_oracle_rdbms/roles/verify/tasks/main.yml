@@ -1,0 +1,59 @@
+---
+- name: Verify requested Oracle Restart runtime state
+  ansible.builtin.command:
+    argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/bin/crsctl", check, has]
+  become: true
+  changed_when: false
+  when: deployment_plan.install_grid or deployment_plan.patch_grid
+
+- name: Verify requested Grid patch identity
+  ansible.builtin.command:
+    argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch", lspatches]
+  become: true
+  become_user: grid
+  changed_when: false
+  register: verify_final_grid_patches
+  when: deployment_plan.patch_grid
+
+- name: Verify requested DB patch identity
+  ansible.builtin.command:
+    argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch", lspatches]
+  become: true
+  become_user: oracle
+  changed_when: false
+  register: verify_final_db_patches
+  when: deployment_plan.patch_db
+
+- name: Enforce final patch state
+  ansible.builtin.assert:
+    that:
+      - >-
+        not deployment_plan.patch_grid or deployment_plan.release_cfg.GRID_RU.expected_patch_ids |
+        difference(verify_final_grid_patches.stdout | regex_findall('(?m)^([0-9]{5,10});')) | length == 0
+      - >-
+        not deployment_plan.patch_db or deployment_plan.release_cfg.DB_RU.expected_patch_ids |
+        difference(verify_final_db_patches.stdout | regex_findall('(?m)^([0-9]{5,10});')) | length == 0
+    fail_msg: Requested home patch ID not found after deployment.
+
+- name: Read current vm.nr_hugepages for the summary
+  ansible.builtin.command:
+    argv: [sysctl, -n, vm.nr_hugepages]
+  become: true
+  changed_when: false
+  register: verify_final_hugepages
+
+- name: Print software-only deployment result
+  ansible.builtin.debug:
+    msg:
+      target: "{{ inventory_hostname }}"
+      release: "{{ deployment_plan.release }}"
+      grid_home: "{{ deployment_plan.release_cfg.GRID_HOME if (deployment_plan.install_grid or deployment_plan.patch_grid) else 'not requested' }}"
+      db_home: "{{ deployment_plan.release_cfg.DB_HOME if (deployment_plan.install_db or deployment_plan.patch_db) else 'not requested' }}"
+      # Interim/one-off patches are best-effort (see patch_grid_oneoffs /
+      # patch_db_oneoffs) — reported here for visibility only, never
+      # asserted, so a conflicted one-off never fails final verification.
+      grid_interim_patches_requested: "{{ deployment_plan.release_cfg.GRID_INTERIM_PATCHES | default([]) | map(attribute='label') | list }}"
+      db_interim_patches_requested: "{{ deployment_plan.release_cfg.DB_INTERIM_PATCHES | default([]) | map(attribute='label') | list }}"
+      vm_nr_hugepages: "{{ verify_final_hugepages.stdout | trim }}"
+      database_creation: outside_scope
+      database_sql_patch: outside_scope

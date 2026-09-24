@@ -1,0 +1,23 @@
+---
+- name: Apply approved Oracle OS baseline
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: true
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Confirm this job has an approved single-host deployment plan
+      ansible.builtin.assert:
+        that:
+          - deployment_plan is defined
+          - inventory_hostname == deployment_plan.target
+          - hostvars[inventory_hostname].deployment_tier == deployment_plan.environment
+        fail_msg: Invalid or mismatched workflow plan; stopping before changes.
+  tasks:
+    - name: Apply scoped baseline
+      ansible.builtin.include_role:
+        name: acme.linux_baseline.configure_baseline
+      when: deployment_plan.install_grid or deployment_plan.install_db
+    - name: Publish reboot requirement
+      ansible.builtin.set_stats:
+        per_host: false
+        data:
+          baseline_reboot_required: "{{ configure_baseline_reboot_required | default(false) }}"

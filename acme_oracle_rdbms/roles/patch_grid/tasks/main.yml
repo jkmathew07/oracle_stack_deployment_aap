@@ -1,0 +1,82 @@
+---
+- name: Patch requested Grid Home
+  when: deployment_plan.patch_grid
+  become: true
+  block:
+    - name: Confirm Grid home is present
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch"
+      register: patch_grid_grid_opatch
+
+    - name: Fail when Grid home is unavailable
+      ansible.builtin.assert:
+        that: patch_grid_grid_opatch.stat.exists | default(false)
+
+    - name: Update OPatch from approved archive
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.update_opatch
+      vars:
+        opatch_home: "{{ deployment_plan.release_cfg.GRID_HOME }}"
+        opatch_owner: grid
+
+    - name: List installed Grid patches
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch", lspatches]
+      changed_when: false
+      register: patch_grid_grid_patches_before
+      become: true
+      become_user: grid
+
+    - name: Stage approved Grid RU
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.stage_patch
+      vars:
+        patch_data: "{{ deployment_plan.release_cfg.GRID_RU }}"
+        patch_owner: grid
+      when: >-
+        deployment_plan.release_cfg.GRID_RU.expected_patch_ids | difference(patch_grid_grid_patches_before.stdout |
+        regex_findall('(?m)^([0-9]{5,10});')) | length > 0
+
+    - name: Analyze Grid RU conflicts
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatchauto"
+          - apply
+          - "{{ deployment_plan.release_cfg.GRID_RU.dir }}"
+          - -oh
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}"
+          - -analyze
+      changed_when: false
+      when: >-
+        deployment_plan.release_cfg.GRID_RU.expected_patch_ids | difference(patch_grid_grid_patches_before.stdout |
+        regex_findall('(?m)^([0-9]{5,10});')) | length > 0
+
+    - name: Apply Grid RU without automatic conflict rollback
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatchauto"
+          - apply
+          - "{{ deployment_plan.release_cfg.GRID_RU.dir }}"
+          - -oh
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}"
+      changed_when: true
+      async: 7200
+      poll: 30
+      when: >-
+        deployment_plan.release_cfg.GRID_RU.expected_patch_ids | difference(patch_grid_grid_patches_before.stdout |
+        regex_findall('(?m)^([0-9]{5,10});')) | length > 0
+
+    - name: Verify installed Grid RU ID
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch", lspatches]
+      changed_when: false
+      register: patch_grid_grid_patches_after
+      become: true
+      become_user: grid
+
+    - name: Enforce requested Grid patch state
+      ansible.builtin.assert:
+        that: >-
+          deployment_plan.release_cfg.GRID_RU.expected_patch_ids | difference(patch_grid_grid_patches_after.stdout |
+          regex_findall('(?m)^([0-9]{5,10});')) | length == 0
+        fail_msg: Grid RU not present in OPatch inventory after application.

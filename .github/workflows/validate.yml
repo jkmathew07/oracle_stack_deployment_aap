@@ -1,0 +1,42 @@
+name: Validate Oracle automation
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test tools
+        run: python -m pip install 'ansible-core==2.20.0' 'PyYAML==6.0.3' 'ansible-lint==25.9.2'
+      - name: Install pinned public dependency
+        run: ansible-galaxy collection install 'ansible.posix:2.1.0' -p ./test_collections
+      - name: Validate offline project contracts
+        run: python tests/verify_contract.py
+      - name: Check playbook syntax (19c and 26ai)
+        run: |
+          mkdir -p test_collections/ansible_collections/acme
+          ln -s "$GITHUB_WORKSPACE/acme_linux_baseline" test_collections/ansible_collections/acme/linux_baseline
+          ln -s "$GITHUB_WORKSPACE/acme_oracle_rdbms" test_collections/ansible_collections/acme/oracle_rdbms
+          export ANSIBLE_COLLECTIONS_PATH="$GITHUB_WORKSPACE/test_collections"
+          export ANSIBLE_CONFIG="$GITHUB_WORKSPACE/acme_oracle_control/ansible.cfg"
+          ansible-playbook -i acme_oracle_control/inventory/oracle_targets.yml \
+            -e @acme_oracle_control/params/examples/grid_and_db.yml \
+            --syntax-check acme_oracle_control/playbooks/local_run.yml
+          ansible-playbook -i acme_oracle_control/inventory/oracle_targets.yml \
+            -e @acme_oracle_control/params/examples/grid_and_db_26ai.yml \
+            --syntax-check acme_oracle_control/playbooks/local_run.yml
+          ansible-playbook -i acme_oracle_control/inventory/oracle_targets.yml \
+            -e @acme_oracle_control/params/examples/patch_with_interim.yml \
+            --syntax-check acme_oracle_control/playbooks/local_run.yml
+      - name: Lint roles and CLI playbooks
+        run: |
+          export ANSIBLE_COLLECTIONS_PATH="$GITHUB_WORKSPACE/test_collections"
+          export ANSIBLE_CONFIG="$GITHUB_WORKSPACE/acme_oracle_control/ansible.cfg"
+          ansible-lint acme_oracle_control/playbooks/local_run.yml \
+            acme_linux_baseline/roles/configure_baseline/tasks/main.yml \
+            acme_oracle_rdbms/roles --offline

@@ -1,0 +1,112 @@
+---
+- name: Require an approved release
+  ansible.builtin.assert:
+    that:
+      - deployment_plan.release in ['19c', '26ai']
+      - deployment_plan.release_cfg.SUPPORTED_OS is defined
+      - deployment_plan.release_cfg.SUPPORTED_OS | length > 0
+    fail_msg: >-
+      Unsupported or unqualified release '{{ deployment_plan.release }}'.
+      Each release's supported OS/version combinations are owned by
+      config/releases/{{ deployment_plan.release }}.yml (SUPPORTED_OS).
+
+- name: Require an approved Linux combination for this release
+  ansible.builtin.assert:
+    that:
+      - >-
+        deployment_plan.release_cfg.SUPPORTED_OS
+        | selectattr('distribution', 'equalto', ansible_facts.distribution)
+        | selectattr('major_version', 'equalto', ansible_facts.distribution_major_version)
+        | list | length > 0
+      - ansible_facts.memtotal_mb | int >= (deployment_plan.release_cfg.MIN_MEM_MB | default(16384) | int)
+      - ansible_facts.processor_vcpus | int >= (deployment_plan.release_cfg.MIN_VCPU | default(2) | int)
+      - ansible_facts.swaptotal_mb | int >= (deployment_plan.release_cfg.MIN_SWAP_MB | default(16384) | int)
+      - ansible_facts.selinux.status | default('disabled') == 'enabled'
+      - ansible_facts.selinux.mode | default('permissive') == 'enforcing'
+    fail_msg: >-
+      Unsupported or undersized host for {{ deployment_plan.release }} on
+      {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }};
+      qualify the OS/release combination and its security baseline first, or
+      add it to SUPPORTED_OS in config/releases/{{ deployment_plan.release }}.yml.
+
+- name: Read transparent hugepage setting
+  ansible.builtin.slurp:
+    src: /sys/kernel/mm/transparent_hugepage/enabled
+  register: preflight_oracle_thp_state
+  become: true
+
+- name: Enforce preconfigured transparent hugepage policy
+  ansible.builtin.assert:
+    that: "'[' ~ 'never' ~ ']' in (preflight_oracle_thp_state.content | b64decode)"
+    fail_msg: "THP must be disabled in the approved image before Oracle deployment."
+
+- name: Prevent unpatched installation where the release requires it
+  ansible.builtin.assert:
+    that:
+      - not deployment_plan.install_grid or deployment_plan.patch_grid
+      - not deployment_plan.install_db or deployment_plan.patch_db
+    fail_msg: >-
+      A qualified RU must be selected for each newly installed
+      {{ deployment_plan.release }} home on
+      {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }}
+      (see REQUIRE_RU_ON_MAJOR_VERSIONS in
+      config/releases/{{ deployment_plan.release }}.yml).
+  when: >-
+    ansible_facts.distribution_major_version in
+    (deployment_plan.release_cfg.REQUIRE_RU_ON_MAJOR_VERSIONS | default([]))
+
+- name: Check requested Oracle media and patches on the managed host
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    get_checksum: true
+  loop: "{{ deployment_plan.artifacts }}"
+  loop_control:
+    label: "{{ item.label }}"
+  register: preflight_oracle_artifact_checks
+  become: true
+
+- name: Verify approved artifact hashes before any change
+  ansible.builtin.assert:
+    that:
+      - item.item.sha256 is match('^[0-9a-f]{64}$')
+      - item.stat.isreg | default(false)
+      - item.stat.checksum | default('') == item.item.sha256
+    fail_msg: "Missing or unapproved artifact: {{ item.item.label }}"
+  loop: "{{ preflight_oracle_artifact_checks.results }}"
+  loop_control:
+    label: "{{ item.item.label }}"
+
+- name: Read Oracle inventory metadata
+  ansible.builtin.stat:
+    path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: preflight_oracle_inventory_stat
+  become: true
+
+- name: Read registered Oracle homes
+  ansible.builtin.slurp:
+    src: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: preflight_oracle_inventory_xml
+  when: preflight_oracle_inventory_stat.stat.exists
+  become: true
+
+- name: Check existing Grid and Database homes
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ deployment_plan.release_cfg.GRID_HOME }}"
+    - "{{ deployment_plan.release_cfg.DB_HOME }}"
+  register: preflight_oracle_home_checks
+  become: true
+
+- name: Fail closed on partial installs and absent patch targets
+  ansible.builtin.assert:
+    that:
+      - not deployment_plan.install_grid or not preflight_oracle_home_checks.results[0].stat.exists or grid_registered
+      - not deployment_plan.install_db or not preflight_oracle_home_checks.results[1].stat.exists or db_registered
+      - not deployment_plan.patch_grid or deployment_plan.install_grid or grid_registered
+      - not deployment_plan.patch_db or deployment_plan.install_db or db_registered
+    fail_msg: Existing unregistered home or missing patch target. Investigate and recover manually.
+  vars:
+    grid_registered: "{{ 'LOC=\"' ~ deployment_plan.release_cfg.GRID_HOME ~ '\"' in (preflight_oracle_inventory_xml.content | default('') | b64decode) }}"
+    db_registered: "{{ 'LOC=\"' ~ deployment_plan.release_cfg.DB_HOME ~ '\"' in (preflight_oracle_inventory_xml.content | default('') | b64decode) }}"

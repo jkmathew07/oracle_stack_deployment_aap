@@ -1,0 +1,13 @@
+---
+# Install only from enterprise-signed repositories. Add certified packages
+# for the selected Oracle release/OS image in the release qualification process.
+oracle_os_packages:
+  - binutils
+  - glibc
+  - glibc-devel
+  - ksh
+  - libaio
+  - libnsl
+  - libstdc++
+  - make
+  - unzip

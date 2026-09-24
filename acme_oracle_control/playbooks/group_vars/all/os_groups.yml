@@ -1,0 +1,25 @@
+---
+# ==============================================================================
+# FILE: group_vars/all/os_config/os_groups.yml
+# PURPOSE: Oracle and Grid OS group definitions.
+#   configure_os_groups worker reads these based on:
+#     grid_configuration_enabled  → include grid_groups
+#     oracle_configuration_enabled → include oracle_groups
+#   oinstall appears in both — deduplication handled in the worker.
+# ==============================================================================
+
+grid_groups:
+  - { name: oinstall,  gid: 54321 }
+  - { name: asmadmin, gid: 54327 }
+  - { name: asmdba,   gid: 54328 }
+  - { name: asmoper,  gid: 54329 }
+  - { name: racdba,   gid: 54330 }
+
+oracle_groups:
+  - { name: oinstall,   gid: 54321 }
+  - { name: dba,        gid: 54322 }
+  - { name: oper,       gid: 54323 }
+  - { name: backupdba,  gid: 54324 }
+  - { name: dgdba,      gid: 54325 }
+  - { name: kmdba,      gid: 54326 }
+  - { name: racdba,     gid: 54330 }

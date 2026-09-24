@@ -1,0 +1,20 @@
+---
+- name: Reboot only if identity or limits changed
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Confirm this job has an approved single-host deployment plan
+      ansible.builtin.assert:
+        that:
+          - deployment_plan is defined
+          - inventory_hostname == deployment_plan.target
+          - hostvars[inventory_hostname].deployment_tier == deployment_plan.environment
+        fail_msg: Invalid or mismatched workflow plan; stopping before changes.
+  tasks:
+    - name: Reboot and verify host connectivity
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+        post_reboot_delay: 30
+      become: true
+      when: baseline_reboot_required | default(false) | bool

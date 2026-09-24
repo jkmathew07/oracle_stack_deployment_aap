@@ -1,0 +1,64 @@
+---
+# =============================================================================
+# patch_db_oneoffs — restored from the pre-hardening design.
+#
+# DELIBERATE DESIGN CHOICE: a one-off patch conflict/failure here is logged
+# as a WARNING, not a hard failure. The RU is already applied and the DB
+# home is in a valid, supported state; an interim patch on top of that is
+# best-effort. This role therefore does NOT fail the play on a patch
+# conflict — that is intentional, not an oversight, and matches the
+# behavior of patch_grid_oneoffs.
+#
+# No-ops cleanly (and fast — gather_facts:false-safe) when
+# DB_INTERIM_PATCHES is empty, which is the default in every shipped
+# config/releases/*.yml until interim patches are explicitly approved.
+# =============================================================================
+
+- name: Apply requested DB interim patches
+  when:
+    - deployment_plan.patch_db
+    - deployment_plan.release_cfg.DB_INTERIM_PATCHES | default([]) | length > 0
+  become: true
+  block:
+    - name: Confirm DB home is present
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch"
+      register: patch_db_oneoffs_db_opatch
+
+    - name: Fail when DB home is unavailable
+      ansible.builtin.assert:
+        that: patch_db_oneoffs_db_opatch.stat.exists | default(false)
+
+    - name: Update OPatch from approved archive
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.update_opatch
+      vars:
+        opatch_home: "{{ deployment_plan.release_cfg.DB_HOME }}"
+        opatch_owner: oracle
+
+    - name: List installed DB patches before interim patching
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch", lspatches]
+      changed_when: false
+      register: patch_db_oneoffs_patches_before
+      become: true
+      become_user: oracle
+
+    - name: Apply each approved DB interim patch
+      ansible.builtin.include_tasks: apply_one_interim_patch.yml
+      loop: "{{ deployment_plan.release_cfg.DB_INTERIM_PATCHES }}"
+      loop_control:
+        loop_var: oneoff_item
+        label: "{{ oneoff_item.label | default(oneoff_item.id) }}"
+
+    - name: Report final interim patch inventory (informational only)
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch", lspatches]
+      changed_when: false
+      become: true
+      become_user: oracle
+      register: patch_db_oneoffs_patches_after
+
+    - name: Display interim patch outcome
+      ansible.builtin.debug:
+        msg: "DB OPatch inventory after interim patching: {{ patch_db_oneoffs_patches_after.stdout_lines }}"

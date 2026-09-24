@@ -1,0 +1,46 @@
+# =============================================================================
+# FILE : roles/workers/prepare_for_grid_installation/files/grid.rsp
+#        roles/workers/install_configure_grid/files/grid.rsp
+#
+#
+# VARIABLE SOURCES
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ Variable                         Source file                            │
+# ├─────────────────────────────────────────────────────────────────────────┤
+# │ GRID_HOME                        sw_install_config.yml                  │
+# │ GRID_BASE                        sw_install_config.yml                  │
+# │ oracle_users.grid.primary_group  os_config/os_users.yml                 │
+# │ grid_groups[*].name              os_config/os_groups.yml                │
+# └─────────────────────────────────────────────────────────────────────────┘
+# =============================================================================
+
+oracle.install.responseFileVersion=/oracle/install/rspfmt_crsinstall_response_schema_v{{ deployment_plan.release_cfg.RESPONSE_FILE_SCHEMA_VERSION | default("19.0.0") }}
+
+INVENTORY_LOCATION={{ deployment_plan.release_cfg.ORA_INVENTORY }}
+
+#-------------------------------------------------------------------------------
+# Specify the Unix group to be set for the inventory directory.
+#-------------------------------------------------------------------------------
+UNIX_GROUP_NAME={{ oracle_users.grid.primary_group }}
+
+
+oracle.install.option=CRS_SWONLY
+
+ORACLE_BASE={{ deployment_plan.release_cfg.GRID_BASE }}
+
+ORACLE_HOME={{ deployment_plan.release_cfg.GRID_HOME }}
+
+oracle.install.asm.OSDBA={{   grid_groups | selectattr('name', 'equalto', 'asmdba')   | map(attribute='name') | first }}
+
+oracle.install.asm.OSOPER={{  grid_groups | selectattr('name', 'equalto', 'asmoper')  | map(attribute='name') | first }}
+
+oracle.install.asm.OSASM={{   grid_groups | selectattr('name', 'equalto', 'asmadmin') | map(attribute='name') | first }}
+
+oracle.install.crs.rootconfig.executeRootScript=false
+
+
+
+
+
+
+

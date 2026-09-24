@@ -1,0 +1,74 @@
+---
+# Every artifact SHA-256 must be filled with a verified approved value.
+# Installation intentionally fails closed until this release is qualified.
+
+# Compatibility matrix owned here, not hardcoded in the preflight role.
+# Verify against Oracle's published 19c certification matrix before editing.
+SUPPORTED_OS:
+  - { distribution: OracleLinux, major_version: '8' }
+  - { distribution: OracleLinux, major_version: '9' }
+  - { distribution: RedHat, major_version: '8' }
+  - { distribution: RedHat, major_version: '9' }
+
+# A qualified RU is mandatory for any newly installed home on these major
+# versions (matches Oracle's own 19.23+ / EL9 support requirement).
+REQUIRE_RU_ON_MAJOR_VERSIONS: ['9']
+
+MIN_MEM_MB: 16384
+MIN_VCPU: 2
+MIN_SWAP_MB: 16384
+
+# gridSetup.sh/db setup.sh response file schema suffix (the "v19.0.0" in
+# rspfmt_crsinstall_response_schema_v19.0.0). Confirmed against the 19c
+# installer documentation.
+RESPONSE_FILE_SCHEMA_VERSION: '19.0.0'
+
+ORA_INVENTORY: /u01/app/oraInventory
+GRID_HOME: /u01/app/19.30.0/grid
+GRID_BASE: /u01/app/grid
+DB_HOME: /u01/app/oracle/product/19.30.0/dbhome_1
+DB_BASE: /u01/app/oracle
+
+GRID_MEDIA:
+  path: /nfsshare/ora_binaries/grid/LINUX.X64_193000_grid_home.zip
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+DB_MEDIA:
+  path: /nfsshare/ora_binaries/oracle/LINUX.X64_193000_db_home.zip
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+
+GRID_RU:
+  path: /nfsshare/oracle_rus/RU30/grid/p38629535_190000_Linux-x86-64.zip
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+  id: '38629535'
+  expected_patch_ids: []  # Fill from qualified OPatch lspatches output.
+  dir: /u01/patches/stage/grid/38629535
+
+DB_RU:
+  path: REPLACE_WITH_APPROVED_DB_RU_ZIP
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+  id: '00000000'
+  expected_patch_ids: []  # Fill from qualified DB RU manifest.
+  dir: /u01/patches/stage/db/00000000
+
+OPATCH_ZIP:
+  path: /nfsshare/oracle_rus/RU30/grid/p6880880_190000_Linux-x86-64.zip
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+
+# Interim / one-off patches applied AFTER the RU, best-effort (a conflict here
+# is logged as a warning, not a deployment failure — the RU already brought
+# the home to a valid, supported state; see patch_grid_oneoffs / patch_db_oneoffs).
+# Each entry needs path, sha256, label and dir (unique per patch) filled in
+# before it will actually be staged — leave the list empty for "none approved".
+GRID_INTERIM_PATCHES: []
+# - path: REPLACE_WITH_APPROVED_ONEOFF_ZIP
+#   sha256: REPLACE_WITH_VERIFIED_SHA256
+#   label: "Grid oneoff <bug number>"
+#   id: '00000000'
+#   dir: /u01/patches/stage/grid/oneoffs/00000000
+
+DB_INTERIM_PATCHES: []
+# - path: REPLACE_WITH_APPROVED_ONEOFF_ZIP
+#   sha256: REPLACE_WITH_VERIFIED_SHA256
+#   label: "DB oneoff <bug number>"
+#   id: '00000000'
+#   dir: /u01/patches/stage/db/oneoffs/00000000

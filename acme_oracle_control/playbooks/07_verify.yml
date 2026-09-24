@@ -1,0 +1,17 @@
+---
+- name: Verify final Oracle home state
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Confirm this job has an approved single-host deployment plan
+      ansible.builtin.assert:
+        that:
+          - deployment_plan is defined
+          - inventory_hostname == deployment_plan.target
+          - hostvars[inventory_hostname].deployment_tier == deployment_plan.environment
+        fail_msg: Invalid or mismatched workflow plan; stopping before changes.
+  tasks:
+    - name: Check all requested outcomes
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.verify

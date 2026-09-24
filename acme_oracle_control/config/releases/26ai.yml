@@ -1,0 +1,60 @@
+---
+# 26ai support restored from the pre-hardening design, in the 2.0.0 schema.
+# CHANGE_ME / REPLACE_WITH_* values below are placeholders: this release
+# fails closed at preflight (artifact hash check) until every one is
+# replaced with an approved, verified value. Nothing here has been
+# qualified — treat every default as an assumption to confirm, especially
+# SUPPORTED_OS, which is narrower than 19c's because 26ai is a newer
+# release with a smaller certified OS matrix at time of writing.
+SUPPORTED_OS:
+  - { distribution: OracleLinux, major_version: '9' }
+  - { distribution: RedHat, major_version: '9' }
+
+# 26ai media ships already at a current patch level in most distributions,
+# so there is no equivalent EL-major-version forced-RU requirement known at
+# time of writing. Leave empty unless Oracle's 26ai support docs say
+# otherwise for your target OS.
+REQUIRE_RU_ON_MAJOR_VERSIONS: []
+
+MIN_MEM_MB: 16384
+MIN_VCPU: 2
+MIN_SWAP_MB: 16384
+
+# UNVERIFIED — placeholder only. Confirm the actual response-file schema
+# suffix against the 26ai installer documentation before use; do not assume
+# it follows the same "26.0.0" pattern as the home version.
+RESPONSE_FILE_SCHEMA_VERSION: 'CHANGE_ME_26AI_SCHEMA_VERSION'
+
+ORA_INVENTORY: /u01/app/oraInventory
+GRID_HOME: /u01/app/26.0.0/grid
+GRID_BASE: /u01/app/grid
+DB_HOME: /u01/app/oracle/product/26.0.0/dbhome_1
+DB_BASE: /u01/app/oracle
+
+GRID_MEDIA:
+  path: CHANGE_ME_APPROVED_26AI_GRID_MEDIA_ZIP
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+DB_MEDIA:
+  path: CHANGE_ME_APPROVED_26AI_DB_MEDIA_ZIP
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+
+GRID_RU:
+  path: CHANGE_ME_APPROVED_26AI_GRID_RU_ZIP
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+  id: '00000000'
+  expected_patch_ids: []  # Fill from qualified OPatch lspatches output.
+  dir: /u01/patches/stage/grid/26ai-ru
+
+DB_RU:
+  path: CHANGE_ME_APPROVED_26AI_DB_RU_ZIP
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+  id: '00000001'
+  expected_patch_ids: []  # Fill from qualified DB RU manifest.
+  dir: /u01/patches/stage/db/26ai-ru
+
+OPATCH_ZIP:
+  path: CHANGE_ME_APPROVED_26AI_OPATCH_ZIP
+  sha256: REPLACE_WITH_VERIFIED_SHA256
+
+GRID_INTERIM_PATCHES: []
+DB_INTERIM_PATCHES: []

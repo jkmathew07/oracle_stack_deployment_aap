@@ -1,0 +1,30 @@
+---
+- name: Create isolated patch stage
+  ansible.builtin.file:
+    path: "{{ patch_data.dir | dirname }}"
+    state: directory
+    owner: "{{ patch_owner }}"
+    group: oinstall
+    mode: '0750'
+  become: true
+
+- name: Extract previously validated patch ZIP
+  ansible.builtin.unarchive:
+    src: "{{ patch_data.path }}"
+    dest: "{{ patch_data.dir | dirname }}"
+    remote_src: true
+    creates: "{{ patch_data.dir }}/etc/config/inventory.xml"
+    owner: "{{ patch_owner }}"
+    group: oinstall
+  become: true
+
+- name: Verify expected patch identity exists
+  ansible.builtin.stat:
+    path: "{{ patch_data.dir }}/etc/config/inventory.xml"
+  register: stage_patch_oracle_patch_identity
+  become: true
+
+- name: Reject unexpected patch archive layout
+  ansible.builtin.assert:
+    that: stage_patch_oracle_patch_identity.stat.isreg | default(false)
+    fail_msg: "Approved patch ZIP must contain {{ patch_data.id }}/etc/config/inventory.xml"

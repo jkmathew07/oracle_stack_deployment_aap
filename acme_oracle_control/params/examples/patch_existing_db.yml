@@ -1,0 +1,8 @@
+---
+hostname: ora-stage-01.example.internal
+deploy_environment: staging
+oracle_release: '19c'
+install_grid: false
+install_db_home: false
+patch: db
+change_ticket: CHG-12346

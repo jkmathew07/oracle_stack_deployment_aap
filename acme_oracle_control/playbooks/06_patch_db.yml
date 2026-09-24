@@ -1,0 +1,21 @@
+---
+- name: Apply Database Home RU if requested
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Confirm this job has an approved single-host deployment plan
+      ansible.builtin.assert:
+        that:
+          - deployment_plan is defined
+          - inventory_hostname == deployment_plan.target
+          - hostvars[inventory_hostname].deployment_tier == deployment_plan.environment
+        fail_msg: Invalid or mismatched workflow plan; stopping before changes.
+  tasks:
+    - name: Validate, apply and verify Database Home RU
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.patch_db
+
+    - name: Apply approved DB interim patches (best-effort, see role header)
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.patch_db_oneoffs

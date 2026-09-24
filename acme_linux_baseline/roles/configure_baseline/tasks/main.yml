@@ -1,0 +1,171 @@
+---
+# The standard OS image supplies THP, swap, SELinux and firewall policy —
+# preflight verifies compliance rather than this role configuring it, so
+# automation never silently weakens the security baseline. This role makes
+# the scoped Oracle user, package, kernel and HugePages changes.
+- name: Install approved OS packages from configured signed repositories
+  ansible.builtin.package:
+    name: "{{ oracle_os_packages }}"
+    state: present
+  become: true
+  register: configure_baseline_baseline_packages
+
+- name: Inspect existing Oracle service identities
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ item.username }}"
+    fail_key: false
+  loop: "{{ ([oracle_users.grid] if deployment_plan.install_grid else []) + ([oracle_users.oracle] if deployment_plan.install_db else []) }}"
+  loop_control:
+    label: "{{ item.username }}"
+  register: configure_baseline_existing_users
+
+- name: Refuse to reassign an existing service account UID
+  ansible.builtin.assert:
+    that: >-
+      (item.ansible_facts.getent_passwd[item.item.username] | default(none)) is none or
+      (item.ansible_facts.getent_passwd[item.item.username][1] | int) == (item.item.user_id | int)
+    fail_msg: "{{ item.item.username }} has an unexpected UID; investigate before changing it."
+  loop: "{{ configure_baseline_existing_users.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+
+- name: Inspect existing Oracle groups
+  ansible.builtin.getent:
+    database: group
+    key: "{{ item.name }}"
+    fail_key: false
+  loop: "{{ (grid_groups + oracle_groups) | unique(attribute='name') }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: configure_baseline_existing_groups
+
+- name: Refuse to reassign an existing group GID
+  ansible.builtin.assert:
+    that: >-
+      (item.ansible_facts.getent_group[item.item.name] | default(none)) is none or
+      (item.ansible_facts.getent_group[item.item.name][1] | int) == (item.item.gid | int)
+    fail_msg: "{{ item.item.name }} has an unexpected GID; investigate before changing it."
+  loop: "{{ configure_baseline_existing_groups.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Configure Oracle groups
+  ansible.builtin.group:
+    name: "{{ item.name }}"
+    gid: "{{ item.gid }}"
+    state: present
+  loop: "{{ (grid_groups + oracle_groups) | unique(attribute='name') }}"
+  become: true
+  register: configure_baseline_baseline_groups
+
+- name: Configure Oracle service users
+  ansible.builtin.user:
+    name: "{{ item.username }}"
+    uid: "{{ item.user_id }}"
+    group: "{{ item.primary_group }}"
+    groups: "{{ item.secondary_groups }}"
+    append: true
+    home: "{{ item.home }}"
+    shell: "{{ item.shell }}"
+  loop: "{{ ([oracle_users.grid] if deployment_plan.install_grid else []) + ([oracle_users.oracle] if deployment_plan.install_db else []) }}"
+  loop_control:
+    label: "{{ item.username }}"
+  become: true
+  register: configure_baseline_baseline_users
+
+- name: Apply kernel parameters using sysctl
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/90-oracle.conf
+    state: present
+    reload: true
+  loop: "{{ kernel_parameters }}"
+  become: true
+  register: configure_baseline_baseline_sysctl
+
+# ── HugePages ─────────────────────────────────────────────────────────────
+# Restored: dropped in the 2.0.0 hardening pass. nr_hugepages is always
+# derived from actual server RAM unless an explicit override already meets
+# hugepages_validation.min_pct — never a hardcoded page count, and never
+# left unconfigured, since Oracle SGA sizing depends on it.
+- name: Read HugePages size from /proc/meminfo
+  ansible.builtin.slurp:
+    src: /proc/meminfo
+  register: configure_baseline_meminfo_raw
+  become: true
+
+- name: Calculate required nr_hugepages
+  ansible.builtin.set_fact:
+    configure_baseline_hugepage_size_kb: >-
+      {{ (configure_baseline_meminfo_raw.content | b64decode
+          | regex_findall('Hugepagesize:\s+(\d+) kB') | first | default('2048')) | int }}
+
+- name: Determine desired nr_hugepages
+  ansible.builtin.set_fact:
+    configure_baseline_hugepages_desired: >-
+      {%- set hp_size_mb = (configure_baseline_hugepage_size_kb | int) / 1024 -%}
+      {%- set ram_mb = ansible_facts.memtotal_mb | int -%}
+      {%- set nr_explicit = oracle_hugepages.nr | default(0) | int -%}
+      {%- set nr_calc = (ram_mb * (oracle_hugepages.target_pct | default(56) | int) / 100 / hp_size_mb) | int -%}
+      {%- set explicit_pct = (nr_explicit * hp_size_mb / ram_mb * 100) if nr_explicit > 0 else 0 -%}
+      {%- set min_pct = hugepages_validation.min_pct | default(54) | int -%}
+      {{ nr_calc if (nr_explicit == 0 or explicit_pct < min_pct) else nr_explicit }}
+
+- name: Apply HugePages via sysctl
+  ansible.posix.sysctl:
+    name: vm.nr_hugepages
+    value: "{{ configure_baseline_hugepages_desired }}"
+    sysctl_file: /etc/sysctl.d/90-oracle-hugepages.conf
+    state: present
+    reload: true
+  become: true
+  register: configure_baseline_hugepages_sysctl
+
+- name: Re-read vm.nr_hugepages after apply
+  ansible.builtin.command:
+    argv: [sysctl, -n, vm.nr_hugepages]
+  register: configure_baseline_hugepages_verify
+  changed_when: false
+  become: true
+
+- name: Enforce HugePages actually landed at the desired value
+  ansible.builtin.assert:
+    that: configure_baseline_hugepages_verify.stdout | trim | int == configure_baseline_hugepages_desired | int
+    fail_msg: >-
+      vm.nr_hugepages verification failed on {{ inventory_hostname }}: expected
+      {{ configure_baseline_hugepages_desired }}, got {{ configure_baseline_hugepages_verify.stdout | trim }}.
+      The host may not have enough contiguous free memory — check dmesg | grep -i huge.
+
+- name: Manage Oracle login limits
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/90-oracle.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by Oracle automation. Units for memlock are KiB.
+      oracle soft nofile 1024
+      oracle hard nofile 65536
+      oracle soft nproc 16384
+      oracle hard nproc 16384
+      grid soft nofile 1024
+      grid hard nofile 65536
+      grid soft nproc 16384
+      grid hard nproc 16384
+      oracle soft memlock {{ ((ansible_facts.memtotal_mb | int) * 1024 * 1.0) | int }}
+      oracle hard memlock {{ ((ansible_facts.memtotal_mb | int) * 1024 * 1.0) | int }}
+      grid soft memlock {{ ((ansible_facts.memtotal_mb | int) * 1024 * 1.0) | int }}
+      grid hard memlock {{ ((ansible_facts.memtotal_mb | int) * 1024 * 1.0) | int }}
+  become: true
+  register: configure_baseline_baseline_limits
+
+- name: Record reboot requirement for changed OS identity, limits or HugePages
+  ansible.builtin.set_fact:
+    configure_baseline_reboot_required: >-
+      {{ configure_baseline_baseline_packages is changed or
+         configure_baseline_baseline_groups is changed or
+         configure_baseline_baseline_users is changed or
+         configure_baseline_baseline_limits is changed or
+         configure_baseline_hugepages_sysctl is changed }}

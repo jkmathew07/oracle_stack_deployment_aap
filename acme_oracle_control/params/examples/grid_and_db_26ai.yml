@@ -1,0 +1,8 @@
+---
+hostname: ora-dev-01.example.internal
+deploy_environment: dev
+oracle_release: '26ai'
+install_grid: true
+install_db_home: true
+patch: none
+change_ticket: CHG-12347

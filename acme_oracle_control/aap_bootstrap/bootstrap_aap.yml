@@ -1,0 +1,112 @@
+---
+- name: Define Oracle deploy AAP 2.7 objects
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [bootstrap_vars.yml]
+  tasks:
+    - name: Create pinned control project
+      ansible.controller.project:
+        name: "{{ aap_project_name }}"
+        organization: "{{ aap_organization }}"
+        scm_type: git
+        scm_url: "{{ aap_project_scm_url }}"
+        scm_branch: "{{ aap_project_scm_branch }}"
+        credential: "{{ aap_project_scm_credential }}"
+        scm_update_on_launch: false
+        state: present
+
+    - name: Sync the pinned project before creating job templates
+      ansible.controller.project_update:
+        name: "{{ aap_project_name }}"
+        organization: "{{ aap_organization }}"
+        wait: true
+
+    - name: Create child job templates
+      ansible.controller.job_template:
+        name: "{{ item.name }}"
+        organization: "{{ aap_organization }}"
+        job_type: run
+        project: "{{ aap_project_name }}"
+        playbook: "{{ aap_project_playbook_prefix }}{{ item.playbook }}"
+        inventory: "{{ aap_inventory_name }}"
+        execution_environment: "{{ aap_execution_environment }}"
+        credentials: ["{{ aap_machine_credential }}"]
+        ask_variables_on_launch: true
+        allow_simultaneous: false
+        state: present
+      loop: "{{ aap_nodes }}"
+      loop_control:
+        label: "{{ item.identifier }}"
+
+    - name: Create environment-specific workflows and surveys
+      ansible.controller.workflow_job_template:
+        name: "{{ item.name }}"
+        organization: "{{ aap_organization }}"
+        inventory: "{{ aap_inventory_name }}"
+        survey_enabled: true
+        survey_spec: >-
+          {{ aap_survey_spec | combine({
+               'name': item.name,
+               'spec': aap_survey_spec.spec[:1] +
+                 [aap_survey_spec.spec[1] | combine({'choices': item.environment_choices})] +
+                 aap_survey_spec.spec[2:]
+             }) }}
+        extra_vars: "{{ {'workflow_allowed_tiers': item.allowed} }}"
+        allow_simultaneous: false
+        state: present
+      loop: "{{ aap_workflows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create all job nodes before linking
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: "{{ item.0.name }}"
+        organization: "{{ aap_organization }}"
+        identifier: "{{ item.1.identifier }}"
+        unified_job_template: "{{ item.1.name }}"
+        state: present
+      loop: "{{ aap_workflows | product(aap_nodes) | list }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.identifier }}"
+
+    - name: Create production change approval
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: Oracle Deploy - Prod
+        organization: "{{ aap_organization }}"
+        identifier: approve_change
+        approval_node:
+          name: Approve Oracle host change
+          description: Verify target, change ticket, release, media hashes and scope in preflight job output.
+          timeout: 86400
+        state: present
+
+    - name: Link the six common stage edges
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: "{{ item.0.name }}"
+        organization: "{{ aap_organization }}"
+        identifier: "{{ item.1.from }}"
+        success_nodes: ["{{ item.1.to }}"]
+        state: present
+      loop: "{{ aap_workflows | product(aap_links) | list }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.from }}"
+
+    - name: Link preflight according to environment approval policy
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: "{{ item.name }}"
+        organization: "{{ aap_organization }}"
+        identifier: preflight
+        success_nodes: "{{ ['approve_change'] if item.allowed == ['prod'] else ['baseline'] }}"
+        state: present
+      loop: "{{ aap_workflows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Link production approval to OS baseline
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: Oracle Deploy - Prod
+        organization: "{{ aap_organization }}"
+        identifier: approve_change
+        success_nodes: [baseline]
+        state: present
