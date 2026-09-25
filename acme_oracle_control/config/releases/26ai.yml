@@ -65,9 +65,8 @@ PREINSTALL_PACKAGE:
   name: oracle-database-preinstall-26ai
   rhel:
     '9':
-      url: CHANGE_ME_APPROVED_26AI_RHEL9_PREINSTALL_RPM_URL
+      path: /nfsshare/ora_binaries/preinstall/CHANGE_ME_26AI_PREINSTALL_RPM_EL9
       sha256: REPLACE_WITH_VERIFIED_SHA256
-      gpg_key_url: CHANGE_ME_APPROVED_ORACLE_GPG_KEY_URL
 
 GRID_INTERIM_PATCHES: []
 DB_INTERIM_PATCHES: []

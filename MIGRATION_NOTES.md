@@ -108,3 +108,42 @@ The production workflow, Oracle media (19c and 26ai), interim patch
 approvals, support certification, controller collection version, and
 actual target hosts still require site qualification. See
 `RELEASE_CHECKLIST.md` before any production run.
+
+## Pass 3 — simplify RHEL preinstall handling, add 19c EL10/minimum-RU rules
+
+Two independent additions made after Pass 2:
+
+**Oracle preinstall package, OS-aware install.** Added
+`oracle-database-preinstall-{19c,26ai}` installation to `configure_baseline`:
+Oracle Linux installs it directly from the approved dnf repos; RHEL doesn't
+carry it in a RHEL-trusted repo. The first implementation had RHEL download
+the RPM live from Oracle's yum server plus a GPG key import — reviewed and
+simplified on request: `PREINSTALL_PACKAGE.rhel.<major>` is now `{path,
+sha256}`, the same shape as every other artifact (`GRID_MEDIA`, `DB_MEDIA`,
+`GRID_RU`, `DB_RU`, `OPATCH_ZIP`) — pre-staged on the same shared, vetted
+filesystem, checksummed once by `preflight`, installed by `configure_baseline`
+from that local path. No live download, no GPG key import, no internet
+egress required from the managed host. Implementation nuance: `preflight`
+builds `deployment_plan.artifacts` entirely on `localhost`, before target OS
+facts are gathered, so it can't branch on `ansible_facts.distribution` there
+— the RHEL preinstall entry is instead computed inside the `preflight` role
+itself (`preflight_rhel_preinstall_artifact`, after facts are gathered) and
+folded into the existing generic checksum loop's `loop:` expression, rather
+than by reassigning the shared `deployment_plan` object from inside a role.
+
+**19c minimum-RU-by-OS-version.** Added RHEL/OL 10 to 19c's `SUPPORTED_OS`.
+Replaced the boolean `REQUIRE_RU_ON_MAJOR_VERSIONS` list with a single
+`MIN_RU_VERSION_ON_MAJOR_VERSION` dict (`{'9': 23, '10': 32}`) so "is an RU
+required" and "which RU, minimum" can't drift out of sync with each other.
+Added an `ru_version` field to `GRID_RU`/`DB_RU` (the RU release number,
+e.g. 30 for "19.30" — distinct from the raw Oracle patch/bug number already
+in `id`); `preflight` now asserts the configured RU actually meets the
+minimum for whatever OS major version it's running on, not just "some RU is
+present." Scoped to 19c only, per instruction — `26ai.yml` ships the same
+field (`MIN_RU_VERSION_ON_MAJOR_VERSION: {}`) with no minimum enforced yet.
+
+Both additions extended `tests/verify_contract.py` with regression guards,
+and were verified the same way as every other change in this bundle:
+`ansible-playbook --syntax-check` against real `ansible-core 2.21.4` across
+all four `params/examples/*.yml` scenarios, and `ansible-lint --offline` at
+the `production` profile — not just asserted in prose.

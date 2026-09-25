@@ -60,8 +60,54 @@ def verify():
         assert 'RESPONSE_FILE_SCHEMA_VERSION' in release, f'{rfile.name}: RESPONSE_FILE_SCHEMA_VERSION must be defined'
         assert 'GRID_INTERIM_PATCHES' in release and 'DB_INTERIM_PATCHES' in release, \
             f'{rfile.name}: interim patch lists must be defined (even if empty)'
+        assert 'ru_version' in release['GRID_RU'] and 'ru_version' in release['DB_RU'], \
+            f'{rfile.name}: GRID_RU/DB_RU must declare ru_version for the minimum-RU check'
+        assert 'MIN_RU_VERSION_ON_MAJOR_VERSION' in release, \
+            f'{rfile.name}: MIN_RU_VERSION_ON_MAJOR_VERSION must be defined (even if empty)'
+        assert 'REQUIRE_RU_ON_MAJOR_VERSIONS' not in release, \
+            f'{rfile.name}: regression guard — REQUIRE_RU_ON_MAJOR_VERSIONS was replaced by MIN_RU_VERSION_ON_MAJOR_VERSION'
+        assert 'PREINSTALL_PACKAGE' in release and 'name' in release['PREINSTALL_PACKAGE'], \
+            f'{rfile.name}: PREINSTALL_PACKAGE.name must be defined'
+        assert 'rhel' in release['PREINSTALL_PACKAGE'], \
+            f'{rfile.name}: PREINSTALL_PACKAGE.rhel must be defined (even if only placeholder entries)'
     release_names = {f.stem for f in release_files}
     assert {'19c', '26ai'} <= release_names, 'Both 19c and 26ai release configs must exist'
+
+    # ── 19c specifically: RHEL/OEL 10 supported, with the stated minimum RUs ──
+    release_19c = yaml.safe_load((releases_dir / '19c.yml').read_text())
+    supported_majors = {(o['distribution'], o['major_version']) for o in release_19c['SUPPORTED_OS']}
+    assert ('OracleLinux', '10') in supported_majors and ('RedHat', '10') in supported_majors, \
+        '19c.yml: SUPPORTED_OS must include major_version 10 for both distributions'
+    assert release_19c['MIN_RU_VERSION_ON_MAJOR_VERSION'].get('9') == 23, \
+        '19c.yml: MIN_RU_VERSION_ON_MAJOR_VERSION["9"] must be 23'
+    assert release_19c['MIN_RU_VERSION_ON_MAJOR_VERSION'].get('10') == 32, \
+        '19c.yml: MIN_RU_VERSION_ON_MAJOR_VERSION["10"] must be 32'
+
+    # ── Preflight must enforce the minimum-RU rule, and never GPG-bypass the preinstall RPM ──
+    preflight_src = (ROOT / 'acme_oracle_rdbms/roles/preflight/tasks/main.yml').read_text()
+    assert 'MIN_RU_VERSION_ON_MAJOR_VERSION' in preflight_src, \
+        'preflight must reference MIN_RU_VERSION_ON_MAJOR_VERSION'
+    assert 'REQUIRE_RU_ON_MAJOR_VERSIONS' not in preflight_src, \
+        'regression guard: preflight must not reference the retired REQUIRE_RU_ON_MAJOR_VERSIONS'
+    baseline_src_full = (ROOT / 'acme_linux_baseline/roles/configure_baseline/tasks/main.yml').read_text()
+    assert 'deployment_plan.release_cfg.PREINSTALL_PACKAGE.name' in baseline_src_full, \
+        'PREINSTALL_PACKAGE.name must be read from config, not hardcoded in the role'
+    assert 'disable_gpg_check: true' not in baseline_src_full, \
+        'regression guard: the RHEL preinstall RPM must never disable GPG checking'
+    assert 'get_url' not in baseline_src_full and 'rpm_key' not in baseline_src_full, \
+        'regression guard: the RHEL preinstall RPM must be pre-staged + checksummed by preflight, ' \
+        'not live-downloaded (see MIGRATION_NOTES.md) — no get_url/rpm_key in configure_baseline'
+    preflight_full = (ROOT / 'acme_oracle_rdbms/roles/preflight/tasks/main.yml').read_text()
+    assert "combine({'label': 'Oracle preinstall package'})" in preflight_full, \
+        'preflight must compute the RHEL preinstall RPM as an artifact for the ' \
+        'existing generic checksum loop to cover'
+    assert 'deployment_plan.artifacts + preflight_rhel_preinstall_artifact' in preflight_full, \
+        'the generic checksum loop must include the RHEL preinstall artifact'
+    for rfile in release_files:
+        release = yaml.safe_load(rfile.read_text())
+        for major, entry in release['PREINSTALL_PACKAGE'].get('rhel', {}).items():
+            assert 'path' in entry and 'sha256' in entry and 'url' not in entry, \
+                f'{rfile.name}: PREINSTALL_PACKAGE.rhel["{major}"] must be a local {{path, sha256}} artifact, not a URL'
 
     # ── Survey must offer both releases ──────────────────────────────────
     release_question = next(q for q in bootstrap['aap_survey_spec']['spec'] if q['variable'] == 'oracle_release')

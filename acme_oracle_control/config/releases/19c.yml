@@ -66,26 +66,25 @@ OPATCH_ZIP:
 
 # Oracle preinstall package. On Oracle Linux it's installed directly from
 # the approved dnf repos. RHEL doesn't carry it in a RHEL-trusted repo, so
-# it's downloaded to /tmp from Oracle's yum server and installed locally —
-# both the RPM's SHA-256 and the signing GPG key are verified first; nothing
-# here bypasses GPG checking. Fill every REPLACE_WITH_* with a verified,
-# approved value per RHEL major version before this can be used — this
-# fails closed exactly like GRID_MEDIA/DB_MEDIA above.
+# it's pre-staged on the same shared, vetted filesystem as GRID_MEDIA/
+# DB_MEDIA above and installed from that local path — trusted the same way
+# every other artifact in this file is: a checksum verified by preflight
+# before anything runs, not a live download or a live GPG check. Fill every
+# REPLACE_WITH_* with a verified, approved value per RHEL major version
+# before this can be used — this fails closed exactly like GRID_MEDIA/
+# DB_MEDIA above.
 PREINSTALL_PACKAGE:
   name: oracle-database-preinstall-19c
   rhel:
     '8':
-      url: REPLACE_WITH_VERIFIED_RHEL8_PREINSTALL_RPM_URL
+      path: /nfsshare/ora_binaries/preinstall/oracle-database-preinstall-19c-1.0-3.el8.x86_64.rpm
       sha256: REPLACE_WITH_VERIFIED_SHA256
-      gpg_key_url: REPLACE_WITH_VERIFIED_ORACLE_GPG_KEY_URL
     '9':
-      url: REPLACE_WITH_VERIFIED_RHEL9_PREINSTALL_RPM_URL
+      path: /nfsshare/ora_binaries/preinstall/oracle-database-preinstall-19c-1.0-1.el9.x86_64.rpm
       sha256: REPLACE_WITH_VERIFIED_SHA256
-      gpg_key_url: REPLACE_WITH_VERIFIED_ORACLE_GPG_KEY_URL
     '10':
-      url: REPLACE_WITH_VERIFIED_RHEL10_PREINSTALL_RPM_URL
+      path: /nfsshare/ora_binaries/preinstall/oracle-database-preinstall-19c-1.0-1.el10.x86_64.rpm
       sha256: REPLACE_WITH_VERIFIED_SHA256
-      gpg_key_url: REPLACE_WITH_VERIFIED_ORACLE_GPG_KEY_URL
 
 # Interim / one-off patches applied AFTER the RU, best-effort (a conflict here
 # is logged as a warning, not a deployment failure — the RU already brought

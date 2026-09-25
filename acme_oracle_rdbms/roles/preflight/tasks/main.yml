@@ -29,6 +29,21 @@
       qualify the OS/release combination and its security baseline first, or
       add it to SUPPORTED_OS in config/releases/{{ deployment_plan.release }}.yml.
 
+# RHEL doesn't carry oracle-database-preinstall in a RHEL-trusted repo (see
+# configure_baseline), so it's pre-staged and checksummed the same way as
+# every other artifact — but which file that is depends on
+# ansible_facts.distribution_major_version, which localhost (where
+# deployment_plan.artifacts was first built) never has. Compute it here,
+# now that facts are known, and fold it into the existing generic checksum
+# loop below instead of reassigning deployment_plan itself.
+- name: Determine the RHEL preinstall package artifact now that facts are known
+  ansible.builtin.set_fact:
+    preflight_rhel_preinstall_artifact: >-
+      {{ [deployment_plan.release_cfg.PREINSTALL_PACKAGE.rhel[ansible_facts.distribution_major_version]
+            | combine({'label': 'Oracle preinstall package'})]
+         if (ansible_facts.distribution == 'RedHat' and (deployment_plan.install_grid or deployment_plan.install_db))
+         else [] }}
+
 - name: Read transparent hugepage setting
   ansible.builtin.slurp:
     src: /sys/kernel/mm/transparent_hugepage/enabled
@@ -79,7 +94,7 @@
     path: "{{ item.path }}"
     checksum_algorithm: sha256
     get_checksum: true
-  loop: "{{ deployment_plan.artifacts }}"
+  loop: "{{ deployment_plan.artifacts + preflight_rhel_preinstall_artifact }}"
   loop_control:
     label: "{{ item.label }}"
   register: preflight_oracle_artifact_checks
