@@ -11,10 +11,11 @@ SUPPORTED_OS:
   - { distribution: RedHat, major_version: '9' }
 
 # 26ai media ships already at a current patch level in most distributions,
-# so there is no equivalent EL-major-version forced-RU requirement known at
-# time of writing. Leave empty unless Oracle's 26ai support docs say
+# so there is no equivalent EL-major-version minimum-RU requirement known at
+# time of writing (the RHEL10/EL9 minimum-RU rule the automation enforces
+# applies to 19c only). Leave empty unless Oracle's 26ai support docs say
 # otherwise for your target OS.
-REQUIRE_RU_ON_MAJOR_VERSIONS: []
+MIN_RU_VERSION_ON_MAJOR_VERSION: {}
 
 MIN_MEM_MB: 16384
 MIN_VCPU: 2
@@ -42,6 +43,7 @@ GRID_RU:
   path: CHANGE_ME_APPROVED_26AI_GRID_RU_ZIP
   sha256: REPLACE_WITH_VERIFIED_SHA256
   id: '00000000'
+  ru_version: 0  # CHANGE_ME_26AI_GRID_RU_VERSION — no minimum enforced for 26ai yet, see MIN_RU_VERSION_ON_MAJOR_VERSION above
   expected_patch_ids: []  # Fill from qualified OPatch lspatches output.
   dir: /u01/patches/stage/grid/26ai-ru
 
@@ -49,12 +51,23 @@ DB_RU:
   path: CHANGE_ME_APPROVED_26AI_DB_RU_ZIP
   sha256: REPLACE_WITH_VERIFIED_SHA256
   id: '00000001'
+  ru_version: 0  # CHANGE_ME_26AI_DB_RU_VERSION
   expected_patch_ids: []  # Fill from qualified DB RU manifest.
   dir: /u01/patches/stage/db/26ai-ru
 
 OPATCH_ZIP:
   path: CHANGE_ME_APPROVED_26AI_OPATCH_ZIP
   sha256: REPLACE_WITH_VERIFIED_SHA256
+
+# See the PREINSTALL_PACKAGE comment in 19c.yml for the full explanation of
+# this block's OEL-vs-RHEL behavior.
+PREINSTALL_PACKAGE:
+  name: oracle-database-preinstall-26ai
+  rhel:
+    '9':
+      url: CHANGE_ME_APPROVED_26AI_RHEL9_PREINSTALL_RPM_URL
+      sha256: REPLACE_WITH_VERIFIED_SHA256
+      gpg_key_url: CHANGE_ME_APPROVED_ORACLE_GPG_KEY_URL
 
 GRID_INTERIM_PATCHES: []
 DB_INTERIM_PATCHES: []

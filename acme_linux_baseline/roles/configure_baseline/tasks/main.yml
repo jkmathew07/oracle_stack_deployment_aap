@@ -2,13 +2,81 @@
 # The standard OS image supplies THP, swap, SELinux and firewall policy —
 # preflight verifies compliance rather than this role configuring it, so
 # automation never silently weakens the security baseline. This role makes
-# the scoped Oracle user, package, kernel and HugePages changes.
+# the scoped Oracle user, package, kernel, HugePages and Oracle preinstall
+# package changes.
 - name: Install approved OS packages from configured signed repositories
   ansible.builtin.package:
     name: "{{ oracle_os_packages }}"
     state: present
   become: true
   register: configure_baseline_baseline_packages
+
+# ── Oracle preinstall package ────────────────────────────────────────────
+# oracle-database-preinstall-{{ release }} sets Oracle's own recommended
+# kernel/limits/user baseline as a starting point. The explicit group/user/
+# kernel/limits tasks below always run afterward and reconcile to this
+# project's approved values regardless of what the package set, so install
+# order here is safe either way.
+#
+# Oracle Linux carries this package in the approved dnf repos directly.
+# RHEL does not, so it's downloaded to /tmp from Oracle's yum server and
+# installed from the local file — both its SHA-256 and its signing GPG key
+# are verified first. Nothing here disables GPG checking.
+- name: Install Oracle preinstall package (Oracle Linux — from approved dnf repos)
+  ansible.builtin.dnf:
+    name: "{{ deployment_plan.release_cfg.PREINSTALL_PACKAGE.name }}"
+    state: present
+  become: true
+  register: configure_baseline_preinstall_oel
+  when: ansible_facts.distribution == 'OracleLinux'
+
+- name: RHEL — resolve preinstall package download details for this OS major version
+  ansible.builtin.set_fact:
+    configure_baseline_preinstall_rhel_cfg: >-
+      {{ deployment_plan.release_cfg.PREINSTALL_PACKAGE.rhel[ansible_facts.distribution_major_version] }}
+  when: ansible_facts.distribution == 'RedHat'
+
+- name: RHEL — assert preinstall package download details are qualified
+  ansible.builtin.assert:
+    that:
+      - configure_baseline_preinstall_rhel_cfg is defined
+      - configure_baseline_preinstall_rhel_cfg.url is defined
+      - not (configure_baseline_preinstall_rhel_cfg.url is search('REPLACE_WITH|CHANGE_ME'))
+      - configure_baseline_preinstall_rhel_cfg.sha256 is match('^[0-9a-f]{64}$')
+      - configure_baseline_preinstall_rhel_cfg.gpg_key_url is defined
+      - not (configure_baseline_preinstall_rhel_cfg.gpg_key_url is search('REPLACE_WITH|CHANGE_ME'))
+    fail_msg: >-
+      No qualified oracle-database-preinstall download for RHEL
+      {{ ansible_facts.distribution_major_version }} in PREINSTALL_PACKAGE.rhel
+      in config/releases/{{ deployment_plan.release }}.yml. Fill in url, sha256
+      and gpg_key_url with verified, approved values first.
+    quiet: true
+  when: ansible_facts.distribution == 'RedHat'
+
+- name: RHEL — import the Oracle GPG key used to sign the preinstall RPM
+  ansible.builtin.rpm_key:
+    key: "{{ configure_baseline_preinstall_rhel_cfg.gpg_key_url }}"
+    state: present
+  become: true
+  when: ansible_facts.distribution == 'RedHat'
+
+- name: RHEL — download the preinstall package to /tmp
+  ansible.builtin.get_url:
+    url: "{{ configure_baseline_preinstall_rhel_cfg.url }}"
+    dest: "/tmp/{{ configure_baseline_preinstall_rhel_cfg.url | urlsplit('path') | basename }}"
+    checksum: "sha256:{{ configure_baseline_preinstall_rhel_cfg.sha256 }}"
+    mode: '0644'
+  become: true
+  register: configure_baseline_preinstall_download
+  when: ansible_facts.distribution == 'RedHat'
+
+- name: RHEL — install the downloaded preinstall package
+  ansible.builtin.dnf:
+    name: "{{ configure_baseline_preinstall_download.dest }}"
+    state: present
+  become: true
+  register: configure_baseline_preinstall_rhel
+  when: ansible_facts.distribution == 'RedHat'
 
 - name: Inspect existing Oracle service identities
   ansible.builtin.getent:
@@ -165,6 +233,8 @@
   ansible.builtin.set_fact:
     configure_baseline_reboot_required: >-
       {{ configure_baseline_baseline_packages is changed or
+         configure_baseline_preinstall_oel is changed or
+         configure_baseline_preinstall_rhel is changed or
          configure_baseline_baseline_groups is changed or
          configure_baseline_baseline_users is changed or
          configure_baseline_baseline_limits is changed or

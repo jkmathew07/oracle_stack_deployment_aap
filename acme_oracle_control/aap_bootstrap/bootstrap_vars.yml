@@ -1,13 +1,13 @@
 ---
 aap_organization: Oracle Automation
-aap_project_name: Oracle Deploy 2.0
+aap_project_name: Oracle Deploy 2.1
 aap_project_scm_url: https://git.example.internal/oracle/control.git
-aap_project_scm_branch: release/2.0.0
+aap_project_scm_branch: release/2.1.0
 aap_project_scm_credential: Oracle Control SCM - Read Only
 # Repository root contains the three directories in this release bundle.
 aap_project_playbook_prefix: acme_oracle_control/
 aap_inventory_name: Oracle Targets
-aap_execution_environment: Oracle Deploy EE 2.0
+aap_execution_environment: Oracle Deploy EE 2.1
 aap_machine_credential: Oracle Targets - Machine
 
 aap_nodes:

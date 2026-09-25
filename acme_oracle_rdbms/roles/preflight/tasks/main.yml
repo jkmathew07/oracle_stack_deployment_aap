@@ -40,7 +40,13 @@
     that: "'[' ~ 'never' ~ ']' in (preflight_oracle_thp_state.content | b64decode)"
     fail_msg: "THP must be disabled in the approved image before Oracle deployment."
 
-- name: Prevent unpatched installation where the release requires it
+- name: Determine minimum RU version required for this release on this OS major version
+  ansible.builtin.set_fact:
+    preflight_min_ru_version: >-
+      {{ (deployment_plan.release_cfg.MIN_RU_VERSION_ON_MAJOR_VERSION | default({}))
+         [ansible_facts.distribution_major_version] | default(0) | int }}
+
+- name: Prevent unpatched installation where the release requires a minimum RU
   ansible.builtin.assert:
     that:
       - not deployment_plan.install_grid or deployment_plan.patch_grid
@@ -49,11 +55,24 @@
       A qualified RU must be selected for each newly installed
       {{ deployment_plan.release }} home on
       {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }}
-      (see REQUIRE_RU_ON_MAJOR_VERSIONS in
+      (see MIN_RU_VERSION_ON_MAJOR_VERSION in
       config/releases/{{ deployment_plan.release }}.yml).
-  when: >-
-    ansible_facts.distribution_major_version in
-    (deployment_plan.release_cfg.REQUIRE_RU_ON_MAJOR_VERSIONS | default([]))
+  when: preflight_min_ru_version | int > 0
+
+- name: Enforce the minimum RU version itself for this OS major version
+  ansible.builtin.assert:
+    that:
+      - not deployment_plan.patch_grid or (deployment_plan.release_cfg.GRID_RU.ru_version | default(0) | int) >= (preflight_min_ru_version | int)
+      - not deployment_plan.patch_db or (deployment_plan.release_cfg.DB_RU.ru_version | default(0) | int) >= (preflight_min_ru_version | int)
+    fail_msg: >-
+      {{ deployment_plan.release }} on
+      {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }}
+      requires a qualified RU at or above RU{{ preflight_min_ru_version }}
+      (see MIN_RU_VERSION_ON_MAJOR_VERSION in
+      config/releases/{{ deployment_plan.release }}.yml). Configured:
+      GRID_RU=RU{{ deployment_plan.release_cfg.GRID_RU.ru_version | default('unset') }},
+      DB_RU=RU{{ deployment_plan.release_cfg.DB_RU.ru_version | default('unset') }}.
+  when: preflight_min_ru_version | int > 0
 
 - name: Check requested Oracle media and patches on the managed host
   ansible.builtin.stat:
