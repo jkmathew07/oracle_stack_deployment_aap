@@ -11,7 +11,7 @@
   become: true
   register: configure_baseline_baseline_packages
 
-# ── Oracle preinstall package ────────────────────────────────────────────
+# ── Oracle preinstall package (Oracle Linux) ─────────────────────────────
 # oracle-database-preinstall-{{ release }} sets Oracle's own recommended
 # kernel/limits/user baseline as a starting point. The explicit group/user/
 # kernel/limits tasks below always run afterward and reconcile to this
@@ -19,11 +19,6 @@
 # order here is safe either way.
 #
 # Oracle Linux carries this package in the approved dnf repos directly.
-# RHEL does not, so it's pre-staged on the same shared, vetted filesystem
-# as GRID_MEDIA/DB_MEDIA and installed from that local path — preflight
-# already verified its SHA-256 as part of deployment_plan.artifacts before
-# this role ever runs, exactly like it does for every other binary this
-# project installs, so there is nothing left to download or verify here.
 - name: Install Oracle preinstall package (Oracle Linux — from approved dnf repos)
   ansible.builtin.dnf:
     name: "{{ deployment_plan.release_cfg.PREINSTALL_PACKAGE.name }}"
@@ -32,14 +27,48 @@
   register: configure_baseline_preinstall_oel
   when: ansible_facts.distribution == 'OracleLinux'
 
-- name: Install Oracle preinstall package (RHEL — from pre-staged local path)
+# ── Locally-supplied packages (shared filesystem) ────────────────────────
+# RHEL doesn't carry oracle-database-preinstall (or anything else Oracle-
+# specific) in a RHEL-trusted repo, so those packages are pre-staged on a
+# shared, vetted filesystem instead (oracle_os_packages_local_dir) and
+# selected by this host's OS major version plus the release being installed
+# (oracle_os_packages_local, in playbooks/group_vars/all/os_packages.yml).
+# preflight already verified every matching entry's SHA-256 before this role
+# ever runs, exactly like it does for GRID_MEDIA/DB_MEDIA/GRID_RU/DB_RU, so
+# there is nothing left to download or verify here.
+#
+# This is intentionally its own task block, split from "Install approved OS
+# packages" above: that task always installs the same fixed
+# oracle_os_packages list from the approved dnf repos; this one installs
+# only what oracle_os_packages_local defines for this exact
+# (major_version, release) pair — which may be nothing at all, and that is
+# a normal, supported state, not an error.
+- name: Determine local packages applicable to this host and release
+  ansible.builtin.set_fact:
+    configure_baseline_local_packages: >-
+      {{ oracle_os_packages_local | default([])
+         | selectattr('major_version', 'equalto', ansible_facts.distribution_major_version)
+         | selectattr('release', 'equalto', deployment_plan.release)
+         | list }}
+
+- name: No local packages defined for this OS/release — nothing to install
+  ansible.builtin.debug:
+    msg: >-
+      No local packages available for {{ ansible_facts.distribution }}
+      {{ ansible_facts.distribution_major_version }} / {{ deployment_plan.release }}
+      in oracle_os_packages_local — skipping local package installation.
+  when: configure_baseline_local_packages | length == 0
+
+- name: Install packages staged on the shared local filesystem
   ansible.builtin.dnf:
-    name: >-
-      {{ deployment_plan.release_cfg.PREINSTALL_PACKAGE.rhel[ansible_facts.distribution_major_version].path }}
+    name: "{{ oracle_os_packages_local_dir ~ item.filename }}"
     state: present
+  loop: "{{ configure_baseline_local_packages }}"
+  loop_control:
+    label: "{{ item.filename }}"
   become: true
-  register: configure_baseline_preinstall_rhel
-  when: ansible_facts.distribution == 'RedHat'
+  register: configure_baseline_local_packages_install
+  when: configure_baseline_local_packages | length > 0
 
 - name: Inspect existing Oracle service identities
   ansible.builtin.getent:
@@ -197,7 +226,7 @@
     configure_baseline_reboot_required: >-
       {{ configure_baseline_baseline_packages is changed or
          configure_baseline_preinstall_oel is changed or
-         configure_baseline_preinstall_rhel is changed or
+         configure_baseline_local_packages_install is changed or
          configure_baseline_baseline_groups is changed or
          configure_baseline_baseline_users is changed or
          configure_baseline_baseline_limits is changed or

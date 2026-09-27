@@ -29,21 +29,6 @@
       qualify the OS/release combination and its security baseline first, or
       add it to SUPPORTED_OS in config/releases/{{ deployment_plan.release }}.yml.
 
-# RHEL doesn't carry oracle-database-preinstall in a RHEL-trusted repo (see
-# configure_baseline), so it's pre-staged and checksummed the same way as
-# every other artifact — but which file that is depends on
-# ansible_facts.distribution_major_version, which localhost (where
-# deployment_plan.artifacts was first built) never has. Compute it here,
-# now that facts are known, and fold it into the existing generic checksum
-# loop below instead of reassigning deployment_plan itself.
-- name: Determine the RHEL preinstall package artifact now that facts are known
-  ansible.builtin.set_fact:
-    preflight_rhel_preinstall_artifact: >-
-      {{ [deployment_plan.release_cfg.PREINSTALL_PACKAGE.rhel[ansible_facts.distribution_major_version]
-            | combine({'label': 'Oracle preinstall package'})]
-         if (ansible_facts.distribution == 'RedHat' and (deployment_plan.install_grid or deployment_plan.install_db))
-         else [] }}
-
 - name: Read transparent hugepage setting
   ansible.builtin.slurp:
     src: /sys/kernel/mm/transparent_hugepage/enabled
@@ -94,7 +79,7 @@
     path: "{{ item.path }}"
     checksum_algorithm: sha256
     get_checksum: true
-  loop: "{{ deployment_plan.artifacts + preflight_rhel_preinstall_artifact }}"
+  loop: "{{ deployment_plan.artifacts }}"
   loop_control:
     label: "{{ item.label }}"
   register: preflight_oracle_artifact_checks
@@ -110,6 +95,46 @@
   loop: "{{ preflight_oracle_artifact_checks.results }}"
   loop_control:
     label: "{{ item.item.label }}"
+
+# ── Locally-supplied packages (shared filesystem) ────────────────────────
+# oracle_os_packages_local (playbooks/group_vars/all/os_packages.yml) is a
+# flat, cross-release list of RPMs staged on a shared filesystem, keyed by
+# OS major version + Oracle release. Filter it down to what applies to this
+# host and this deployment, then verify each match's SHA-256 before
+# configure_baseline is ever allowed to install it — exactly the same
+# fail-closed contract as every other artifact checked above. No match is a
+# normal, supported outcome (nothing to verify, nothing to install).
+- name: Determine local packages applicable to this host and release
+  ansible.builtin.set_fact:
+    preflight_local_packages: >-
+      {{ oracle_os_packages_local | default([])
+         | selectattr('major_version', 'equalto', ansible_facts.distribution_major_version)
+         | selectattr('release', 'equalto', deployment_plan.release)
+         | list }}
+
+- name: Check locally-supplied packages on the managed host
+  ansible.builtin.stat:
+    path: "{{ oracle_os_packages_local_dir ~ item.filename }}"
+    checksum_algorithm: sha256
+    get_checksum: true
+  loop: "{{ preflight_local_packages }}"
+  loop_control:
+    label: "{{ item.filename }}"
+  register: preflight_local_package_checks
+  become: true
+  when: preflight_local_packages | length > 0
+
+- name: Verify locally-supplied package hashes before any change
+  ansible.builtin.assert:
+    that:
+      - item.item.sha256 is match('^[0-9a-f]{64}$')
+      - item.stat.isreg | default(false)
+      - item.stat.checksum | default('') == item.item.sha256
+    fail_msg: "Missing or unapproved local package: {{ item.item.filename }}"
+  loop: "{{ preflight_local_package_checks.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.filename }}"
+  when: preflight_local_packages | length > 0
 
 - name: Read Oracle inventory metadata
   ansible.builtin.stat:

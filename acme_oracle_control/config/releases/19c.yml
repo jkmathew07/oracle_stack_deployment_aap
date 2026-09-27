@@ -1,3 +1,4 @@
+
 ---
 # Every artifact SHA-256 must be filled with a verified approved value.
 # Installation intentionally fails closed until this release is qualified.
@@ -30,11 +31,12 @@ MIN_SWAP_MB: 16384
 # rspfmt_crsinstall_response_schema_v19.0.0). Confirmed against the 19c
 # installer documentation.
 RESPONSE_FILE_SCHEMA_VERSION: '19.0.0'
+RU_VERSION: '19.32.0'
 
 ORA_INVENTORY: /u01/app/oraInventory
-GRID_HOME: /u01/app/19.30.0/grid
+GRID_HOME: /u01/app/{RU_VERSION}/grid
 GRID_BASE: /u01/app/grid
-DB_HOME: /u01/app/oracle/product/19.30.0/dbhome_1
+DB_HOME: /u01/app/oracle/product/{RU_VERSION}/dbhome_1
 DB_BASE: /u01/app/oracle
 
 GRID_MEDIA:
@@ -64,27 +66,15 @@ OPATCH_ZIP:
   path: /nfsshare/oracle_rus/RU30/grid/p6880880_190000_Linux-x86-64.zip
   sha256: REPLACE_WITH_VERIFIED_SHA256
 
-# Oracle preinstall package. On Oracle Linux it's installed directly from
-# the approved dnf repos. RHEL doesn't carry it in a RHEL-trusted repo, so
-# it's pre-staged on the same shared, vetted filesystem as GRID_MEDIA/
-# DB_MEDIA above and installed from that local path — trusted the same way
-# every other artifact in this file is: a checksum verified by preflight
-# before anything runs, not a live download or a live GPG check. Fill every
-# REPLACE_WITH_* with a verified, approved value per RHEL major version
-# before this can be used — this fails closed exactly like GRID_MEDIA/
-# DB_MEDIA above.
+# Oracle preinstall package, Oracle Linux side only. On Oracle Linux it's
+# installed directly from the approved dnf repos by name (PREINSTALL_PACKAGE
+# .name below). RHEL doesn't carry it in a RHEL-trusted repo — as of Pass 4
+# that side is handled generically for every release by
+# oracle_os_packages_local / oracle_os_packages_local_dir in
+# playbooks/group_vars/all/os_packages.yml, not per-release here. See
+# MIGRATION_NOTES.md ("Pass 4") for why this moved.
 PREINSTALL_PACKAGE:
   name: oracle-database-preinstall-19c
-  rhel:
-    '8':
-      path: /nfsshare/ora_binaries/preinstall/oracle-database-preinstall-19c-1.0-3.el8.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
-    '9':
-      path: /nfsshare/ora_binaries/preinstall/oracle-database-preinstall-19c-1.0-1.el9.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
-    '10':
-      path: /nfsshare/ora_binaries/preinstall/oracle-database-preinstall-19c-1.0-1.el10.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
 
 # Interim / one-off patches applied AFTER the RU, best-effort (a conflict here
 # is logged as a warning, not a deployment failure — the RU already brought
