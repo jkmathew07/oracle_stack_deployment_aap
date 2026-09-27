@@ -73,13 +73,20 @@ def verify():
             f'{rfile.name}: regression guard — REQUIRE_RU_ON_MAJOR_VERSIONS was replaced by MIN_RU_VERSION_ON_MAJOR_VERSION'
         assert 'PREINSTALL_PACKAGE' in release and 'name' in release['PREINSTALL_PACKAGE'], \
             f'{rfile.name}: PREINSTALL_PACKAGE.name must be defined'
-        # Fix 2: homes are literal, release-fixed paths patched in place.
-        assert 'RU_VERSION' not in release, f'{rfile.name}: RU_VERSION must not drive home paths'
-        for key in ('ORA_INVENTORY', 'GRID_HOME', 'GRID_BASE', 'DB_HOME', 'DB_BASE'):
+        # RU-versioned homes: patterns carry {RU_VERSION} once; no literal homes.
+        assert 'GRID_HOME' not in release and 'DB_HOME' not in release, \
+            f'{rfile.name}: homes must come from *_HOME_PATTERN + RU_VERSION'
+        for key in ('RU_VERSION', 'BASE_VERSION', 'RU_NUMBER_INDEX'):
+            assert key in release, f'{rfile.name}: {key} must be defined'
+        for key in ('GRID_HOME_PATTERN', 'DB_HOME_PATTERN'):
             value = release[key]
-            assert value.startswith('/') and not any(c in value for c in '{}%$'), \
-                f'{rfile.name}: {key} must be a literal absolute path, got {value!r}'
-        assert not (release['GRID_HOME'] + '/').startswith(release['GRID_BASE'] + '/'), \
+            assert value.startswith('/') and value.count('{RU_VERSION}') == 1 \
+                and '/{RU_VERSION}/' in value and not any(c in value for c in '%$'), \
+                f'{rfile.name}: {key} must be absolute with {{RU_VERSION}} once as a component, got {value!r}'
+        for key in ('ORA_INVENTORY', 'GRID_BASE', 'DB_BASE'):
+            assert release[key].startswith('/') and not any(c in release[key] for c in '{}%$'), \
+                f'{rfile.name}: {key} must be a literal absolute path'
+        assert not release['GRID_HOME_PATTERN'].startswith(release['GRID_BASE'] + '/'), \
             f'{rfile.name}: GRID_HOME must be outside GRID_BASE'
     release_names = {f.stem for f in release_files}
     assert {'19c', '26ai'} <= release_names, 'Both 19c and 26ai release configs must exist'
@@ -114,6 +121,20 @@ def verify():
         'Locally supplied RPMs must be selected from oracle_os_packages_local in both preflight and baseline'
     assert 'Verify locally-supplied package hashes before any change' in preflight_src, \
         'preflight must checksum locally supplied RPMs'
+
+    # 19c: the RU in the home path must be the RU that gets installed.
+    r19 = yaml.safe_load((releases_dir / '19c.yml').read_text())
+    ru_number = int(r19['RU_VERSION'].split('.')[r19['RU_NUMBER_INDEX']])
+    assert r19['GRID_RU']['ru_version'] == ru_number, '19c.yml: GRID_RU.ru_version must match RU_VERSION'
+
+    # Out-of-place: patch roles must never apply an RU in place.
+    for role in ('patch_grid', 'patch_db'):
+        src = (ROOT / 'acme_oracle_rdbms/roles' / role / 'tasks/main.yml').read_text()
+        assert ' apply' not in src and '- apply' not in src, f'{role}: in-place RU apply is not allowed'
+    pf = (ROOT / 'acme_oracle_rdbms/roles/preflight/tasks/main.yml').read_text()
+    assert '/etc/oracle/olr.loc' in pf, 'preflight must refuse Grid changes when HAS runs from another home'
+    assert "replace('{RU_VERSION}'" in (CONTROL / 'playbooks/00_preflight.yml').read_text(), \
+        'node 00 must resolve homes by plain substitution'
 
     # ── Survey must offer both releases ──────────────────────────────────
     release_question = next(q for q in bootstrap['aap_survey_spec']['spec'] if q['variable'] == 'oracle_release')

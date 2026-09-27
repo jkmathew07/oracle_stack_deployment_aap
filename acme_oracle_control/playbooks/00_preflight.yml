@@ -40,6 +40,50 @@
         file: "{{ playbook_dir }}/../config/releases/{{ oracle_release }}.yml"
         name: approved_release
 
+    # ── RU-versioned homes: validate, then resolve by plain substitution ──
+    - name: Validate RU_VERSION and home patterns (fail closed on placeholders)
+      ansible.builtin.assert:
+        that:
+          - approved_release.RU_VERSION is string
+          - approved_release.RU_VERSION is match('^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}$')
+          - approved_release.BASE_VERSION is string
+          - approved_release.BASE_VERSION is match('^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}$')
+          - approved_release.RU_VERSION is version(approved_release.BASE_VERSION, '>=')
+          - approved_release.RU_NUMBER_INDEX | int in [0, 1, 2]
+          - approved_release.GRID_HOME is not defined
+          - approved_release.DB_HOME is not defined
+          - approved_release.GRID_HOME_PATTERN is match('^(/[A-Za-z0-9._-]+)*/\{RU_VERSION\}(/[A-Za-z0-9._-]+)+$')
+          - approved_release.DB_HOME_PATTERN is match('^(/[A-Za-z0-9._-]+)*/\{RU_VERSION\}(/[A-Za-z0-9._-]+)+$')
+          - approved_release.GRID_HOME_PATTERN.split('{RU_VERSION}') | length == 2
+          - approved_release.DB_HOME_PATTERN.split('{RU_VERSION}') | length == 2
+        fail_msg: >-
+          config/releases/{{ oracle_release }}.yml: RU_VERSION/BASE_VERSION must be
+          NN.N.N versions (RU >= base) and GRID_HOME_PATTERN/DB_HOME_PATTERN must be
+          absolute paths containing {RU_VERSION} exactly once as a whole component.
+          Literal GRID_HOME/DB_HOME keys are not allowed.
+
+    - name: Resolve RU-versioned Oracle homes
+      ansible.builtin.set_fact:
+        approved_release: >-
+          {{ approved_release | combine({
+               'GRID_HOME': approved_release.GRID_HOME_PATTERN | replace('{RU_VERSION}', approved_release.RU_VERSION),
+               'DB_HOME': approved_release.DB_HOME_PATTERN | replace('{RU_VERSION}', approved_release.RU_VERSION)}) }}
+        oracle_ru_number: "{{ (approved_release.RU_VERSION.split('.'))[approved_release.RU_NUMBER_INDEX | int] | int }}"
+
+    - name: Require the RU artifacts to match the RU named in the home paths
+      ansible.builtin.assert:
+        that:
+          # A home can only be installed without an RU if the base media IS that version.
+          - not (install_grid | bool) or patch in ['grid', 'both'] or approved_release.RU_VERSION == approved_release.BASE_VERSION
+          - not (install_db_home | bool) or patch in ['db', 'both'] or approved_release.RU_VERSION == approved_release.BASE_VERSION
+          - patch not in ['grid', 'both'] or (approved_release.GRID_RU.ru_version | int) == (oracle_ru_number | int)
+          - patch not in ['db', 'both'] or (approved_release.DB_RU.ru_version | int) == (oracle_ru_number | int)
+        fail_msg: >-
+          Homes for RU_VERSION {{ approved_release.RU_VERSION }} (RU {{ oracle_ru_number }}) must be
+          installed with that RU: select the matching patch scope, and make GRID_RU/DB_RU.ru_version
+          equal {{ oracle_ru_number }} (Grid RU {{ approved_release.GRID_RU.ru_version }},
+          DB RU {{ approved_release.DB_RU.ru_version }} configured).
+
     - name: Normalize deployment plan once
       ansible.builtin.set_fact:
         deployment_plan:
@@ -96,6 +140,9 @@
           environment: "{{ deployment_plan.environment }}"
           change_ticket: "{{ deployment_plan.ticket }}"
           release: "{{ deployment_plan.release }}"
+          ru_version: "{{ deployment_plan.release_cfg.RU_VERSION }}"
+          grid_home: "{{ deployment_plan.release_cfg.GRID_HOME }}"
+          db_home: "{{ deployment_plan.release_cfg.DB_HOME }}"
           install_grid: "{{ deployment_plan.install_grid }}"
           patch_grid: "{{ deployment_plan.patch_grid }}"
           install_db: "{{ deployment_plan.install_db }}"

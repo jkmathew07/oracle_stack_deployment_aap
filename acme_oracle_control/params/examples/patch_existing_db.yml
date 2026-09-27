@@ -1,4 +1,7 @@
 ---
+# Patch-only on an EXISTING RU-versioned home: verifies the home carries its
+# RU and applies approved interim patches. It never moves a home to a new RU;
+# for a new RU install a new home (install_db_home: true, patch: db).
 hostname: ora-stage-01.example.internal
 deploy_environment: staging
 oracle_release: '19c'

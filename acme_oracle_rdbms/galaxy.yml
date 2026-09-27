@@ -1,6 +1,6 @@
 namespace: acme
 name: oracle_rdbms
-version: 2.2.0
+version: 2.3.0
 readme: README.md
 authors: [Enterprise Automation Team]
 description: Oracle 19c/26ai software-only install, RU patching, and best-effort interim patching

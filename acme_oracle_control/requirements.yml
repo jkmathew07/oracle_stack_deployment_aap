@@ -4,7 +4,7 @@ collections:
   - name: acme.linux_baseline
     version: '2.1.0'
   - name: acme.oracle_rdbms
-    version: '2.2.0'
+    version: '2.3.0'
   - name: ansible.posix
     version: '2.1.0'
   # controller_api lookup used by acme.oracle_rdbms.workflow_guard. Pin to

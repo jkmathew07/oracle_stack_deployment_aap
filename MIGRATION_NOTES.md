@@ -156,9 +156,7 @@ the `production` profile — not just asserted in prose.
   `workflow_guard` role verifies provenance, approval and plan integrity via
   the controller API on every node; bootstrap manages RBAC. Workflow policy
   moved to `playbooks/group_vars/all/aap_policy.yml`.
-- **Home paths fixed.** `{RU_VERSION}` was never templated. Homes are now
-  literal, release-fixed paths (`19.0.0`, `23.0.0`) patched in place;
-  `RU_VERSION` removed; preflight and CI reject non-literal paths.
+- **Home paths fixed.** `{RU_VERSION}` was never templated (superseded by Pass 6).
 - **Grid interim patches** use `opatchauto` as root (a configured Restart
   home is root-locked). Conflicts found by analysis are skipped with a
   warning and published; apply failures now fail the node (Grid and DB).
@@ -167,4 +165,23 @@ the `production` profile — not just asserted in prose.
 - `tests/verify_contract.py`: stale Pass 4 PREINSTALL `rhel` checks
   replaced; regression guards added for all four fixes.
 - Rebuild `dist/acme-oracle_rdbms-2.2.0.tar.gz` and publish to Hub.
+
+## Pass 6 — RU-versioned (out-of-place) homes (acme.oracle_rdbms 2.3.0)
+
+- Homes are `GRID_HOME_PATTERN`/`DB_HOME_PATTERN` with one `{RU_VERSION}`
+  component, resolved in node 00 by plain string replacement (never Jinja),
+  validated, shown in the approval output and locked by workflow_guard.
+- A new RU = a new home (install with `-applyRU`). `patch_grid`/`patch_db`
+  no longer apply RUs in place; they fail closed if a home lacks the RU its
+  path names. Interim patches still apply in place.
+- Node 00: RU_VERSION/BASE_VERSION format, RU >= base, RU number
+  (`RU_NUMBER_INDEX`) must equal GRID_RU/DB_RU.ru_version, and a home may be
+  installed without an RU only when RU_VERSION == BASE_VERSION.
+- Target preflight: refuses any Grid change when Oracle Restart
+  (`/etc/oracle/olr.loc`) runs from a different home (switchGridHome is not
+  automated); refuses a new DB home above the running Grid RU.
+- DB interim patching blocks only on instances running from that home, so
+  databases on older RU homes keep running.
+- Not automated (by design): moving databases to the new home + datapatch,
+  Grid home switch, removal of old homes.
 

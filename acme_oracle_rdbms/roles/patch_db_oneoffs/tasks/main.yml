@@ -4,8 +4,8 @@
 #
 # A patch whose conflict check fails is skipped with a warning (home
 # unchanged) and published as db_interim_skipped. A failure during apply
-# fails the job. Databases on the home are already required down by
-# patch_db. No-ops when DB_INTERIM_PATCHES is empty (the shipped default).
+# fails the job. Only instances running from THIS home block patching
+# (other RU homes may keep running). No-ops when DB_INTERIM_PATCHES is empty (the shipped default).
 # =============================================================================
 
 - name: Apply requested DB interim patches
@@ -22,6 +22,32 @@
     - name: Fail when DB home is unavailable
       ansible.builtin.assert:
         that: patch_db_oneoffs_db_opatch.stat.exists | default(false)
+
+    # Out-of-place homes mean databases from OTHER homes may legitimately be
+    # running; only instances whose executable lives in THIS home block it.
+    - name: Find running database instances
+      ansible.builtin.command:
+        argv: [pgrep, -f, '^ora_pmon_']
+      register: patch_db_oneoffs_pmon
+      changed_when: false
+      failed_when: patch_db_oneoffs_pmon.rc not in [0, 1]
+
+    - name: Resolve the executable of each running instance
+      ansible.builtin.stat:
+        path: "/proc/{{ item }}/exe"
+        follow: false
+      loop: "{{ patch_db_oneoffs_pmon.stdout_lines }}"
+      register: patch_db_oneoffs_pmon_exe
+
+    - name: Require no instance running from this home
+      ansible.builtin.assert:
+        that: >-
+          patch_db_oneoffs_pmon_exe.results | selectattr('stat.exists')
+          | map(attribute='stat.lnk_source') | select('match', (deployment_plan.release_cfg.DB_HOME ~ '/') | regex_escape)
+          | list | length == 0
+        fail_msg: >-
+          Instances are running from {{ deployment_plan.release_cfg.DB_HOME }}; stop them under an approved
+          change before interim patching this home.
 
     - name: Update OPatch from approved archive
       ansible.builtin.include_role:

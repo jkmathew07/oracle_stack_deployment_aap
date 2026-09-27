@@ -4,5 +4,6 @@ deploy_environment: dev
 oracle_release: '26ai'
 install_grid: true
 install_db_home: true
-patch: none
+# New homes are named by RU_VERSION, so the RU is applied at install.
+patch: both
 change_ticket: CHG-12347

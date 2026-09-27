@@ -87,7 +87,7 @@
       when: deployment_plan.patch_grid
       register: install_grid_grid_setup_with_ru
 
-    - name: Install Grid without an RU on an approved EL8 host
+    - name: Install Grid from base media (only allowed when RU_VERSION == BASE_VERSION)
       ansible.builtin.command:
         argv:
           - "{{ deployment_plan.release_cfg.GRID_HOME }}/gridSetup.sh"

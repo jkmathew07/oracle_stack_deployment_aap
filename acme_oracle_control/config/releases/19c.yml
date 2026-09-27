@@ -32,14 +32,31 @@ MIN_SWAP_MB: 16384
 # installer documentation.
 RESPONSE_FILE_SCHEMA_VERSION: '19.0.0'
 
-# Oracle homes are FIXED per release and patched IN PLACE (opatch/opatchauto).
-# The RU level lives in GRID_RU/DB_RU, never in the path: a path that changes
-# with the RU would orphan the installed home on the next RU. Paths must be
-# literal absolute paths (no templating) - enforced by preflight and CI.
+# 19.30.0 matches the GRID_RU entry below (RU30). Moving to e.g. 19.32.0 means
+# setting RU_VERSION and GRID_RU/DB_RU/OPATCH to the approved RU32 artifacts together.
+# ── RU-versioned (out-of-place) Oracle homes ──────────────────────────────
+# Every RU gets its OWN home: /u01/app/<RU_VERSION>/grid and
+# /u01/app/oracle/product/<RU_VERSION>/<name>. A new RU means a NEW home
+# (install + -applyRU); existing homes are never RU-patched in place, so the
+# path always tells the truth about the RU inside it and the previous home
+# stays intact for fallback.
+#
+# *_HOME_PATTERN must contain the literal token {RU_VERSION} exactly once, as a
+# whole path component. It is substituted by plain string replacement in node
+# 00 (never Jinja-evaluated), then the resolved path is validated.
+#
+# RU_VERSION must match GRID_RU/DB_RU: its field at RU_NUMBER_INDEX (0-based,
+# 19.30.0 -> field 1 -> 30) must equal GRID_RU.ru_version / DB_RU.ru_version.
+# A home may be installed WITHOUT an RU only when RU_VERSION == BASE_VERSION
+# (the version of the base media), so a path can never claim an RU it lacks.
+RU_VERSION: '19.30.0'
+BASE_VERSION: '19.3.0'
+RU_NUMBER_INDEX: 1
+
 ORA_INVENTORY: /u01/app/oraInventory
-GRID_HOME: /u01/app/19.0.0/grid
+GRID_HOME_PATTERN: /u01/app/{RU_VERSION}/grid
 GRID_BASE: /u01/app/grid
-DB_HOME: /u01/app/oracle/product/19.0.0/dbhome_1
+DB_HOME_PATTERN: /u01/app/oracle/product/{RU_VERSION}/oracle
 DB_BASE: /u01/app/oracle
 
 GRID_MEDIA:

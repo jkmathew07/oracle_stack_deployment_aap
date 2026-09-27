@@ -72,6 +72,11 @@ the job through the controller API.
 
 ## AAP flow
 
+Homes are RU-versioned: `/u01/app/<RU_VERSION>/grid` and
+`/u01/app/oracle/product/<RU_VERSION>/oracle` (from `*_HOME_PATTERN` in the
+release file). A new RU is always a new home installed with `-applyRU`;
+existing homes are never RU-patched in place.
+
 `preflight → approval (prod only) → baseline → reboot → Grid install →
 Grid RU + Grid interim patches → DB install → DB RU + DB interim patches →
 verify`. Preflight publishes one validated plan with `set_stats` (global
