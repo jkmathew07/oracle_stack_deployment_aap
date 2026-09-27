@@ -6,10 +6,10 @@
   digest and Hub collection versions must be recorded at promotion time.
 - No `shell` or `raw` actions. All direct executables use command `argv`.
 - Target must be an exact member of `oracle_targets`; the inventory-assigned
-  environment must match the request. Production requires
-  `workflow_allowed_tiers == ['prod']`, which only the AAP production
-  Workflow Job Template sets — not a guessed AAP-internal variable name —
-  and its approval node before any change.
+  environment must match the request. `workflow_guard` proves via the
+  controller API that each job runs inside a workflow owning the tier, that
+  this run's approval succeeded (prod), and that the plan is the one this
+  run's preflight published. Operators hold Execute on workflows only.
 - Artifact SHA-256 checks run on the managed host before mutations, for
   media, RUs, OPatch, *and* any approved interim/one-off patches. No
   `-ignorePrereqFailure`, GPG bypass, automatic patch conflict rollback,

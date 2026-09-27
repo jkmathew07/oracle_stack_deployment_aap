@@ -20,16 +20,19 @@ MIN_RU_VERSION_ON_MAJOR_VERSION: {}
 MIN_MEM_MB: 16384
 MIN_VCPU: 2
 MIN_SWAP_MB: 16384
-RU_VERSION: '23.6.0'
 # UNVERIFIED — placeholder only. Confirm the actual response-file schema
 # suffix against the 26ai installer documentation before use; do not assume
 # it follows the same "26.0.0" pattern as the home version.
 RESPONSE_FILE_SCHEMA_VERSION: 'CHANGE_ME_26AI_SCHEMA_VERSION'
 
+# Oracle homes are FIXED per release and patched IN PLACE (opatch/opatchauto).
+# The RU level lives in GRID_RU/DB_RU, never in the path: a path that changes
+# with the RU would orphan the installed home on the next RU. Paths must be
+# literal absolute paths (no templating) - enforced by preflight and CI.
 ORA_INVENTORY: /u01/app/oraInventory
-GRID_HOME: /u01/app/{RU_VERSION}/grid
+GRID_HOME: /u01/app/23.0.0/grid
 GRID_BASE: /u01/app/grid
-DB_HOME: /u01/app/oracle/product/{RU_VERSION}/dbhome_1
+DB_HOME: /u01/app/oracle/product/23.0.0/dbhome_1
 DB_BASE: /u01/app/oracle
 
 GRID_MEDIA:

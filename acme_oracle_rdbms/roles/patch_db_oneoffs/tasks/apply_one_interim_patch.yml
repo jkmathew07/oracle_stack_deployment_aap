@@ -1,10 +1,9 @@
 ---
-# Included once per entry in DB_INTERIM_PATCHES, with oneoff_item and
-# patch_db_oneoffs_patches_before set by the caller. A block CAN'T carry
-# loop: directly in Ansible, so the per-item block/rescue lives here and
-# main.yml loops over this file with include_tasks instead.
-
-- name: "Apply DB interim patch: {{ oneoff_item.label | default(oneoff_item.id) }}"
+# Included once per DB_INTERIM_PATCHES entry (oneoff_item), after
+# patch_db_oneoffs_patches_before is set by main.yml. Same failure policy as
+# patch_grid_oneoffs: a conflict found by the prereq check is skipped with a
+# warning (home unchanged); a failure during apply fails the job.
+- name: "DB interim patch: {{ oneoff_item.label | default(oneoff_item.id) }}"
   when: oneoff_item.id not in (patch_db_oneoffs_patches_before.stdout | regex_findall('(?m)^([0-9]{5,10});'))
   block:
     - name: Stage this interim patch
@@ -14,16 +13,50 @@
         patch_data: "{{ oneoff_item }}"
         patch_owner: oracle
 
-    - name: Apply this interim patch via opatch
+    - name: Check this interim patch for conflicts (no change to the home)
       ansible.builtin.command:
-        argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch", apply, "{{ oneoff_item.dir }}", -silent]
-      changed_when: true
+        argv:
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch"
+          - prereq
+          - CheckConflictAgainstOHWithDetail
+          - -ph
+          - "{{ oneoff_item.dir }}"
+          - -oh
+          - "{{ deployment_plan.release_cfg.DB_HOME }}"
       become: true
       become_user: oracle
-  rescue:
-    - name: "Warn — interim patch error treated as non-fatal"
+      changed_when: false
+      failed_when: false
+      register: patch_db_oneoffs_prereq
+
+    - name: Warn and skip - conflict or prerequisite failure (home unchanged)
+      ansible.builtin.set_fact:
+        patch_db_oneoffs_skipped: >-
+          {{ patch_db_oneoffs_skipped | default([]) +
+             [{'id': oneoff_item.id, 'label': oneoff_item.label | default(oneoff_item.id),
+               'reason': 'opatch prereq rc=' ~ patch_db_oneoffs_prereq.rc}] }}
+      when: patch_db_oneoffs_prereq.rc != 0
+
+    - name: Report the skipped interim patch
       ansible.builtin.debug:
         msg: >-
-          WARNING — DB interim patch '{{ oneoff_item.label | default(oneoff_item.id) }}'
-          failed or conflicted; the DB home remains valid at the RU level.
-          Review manually: {{ ansible_failed_result.msg | default('see output above') | truncate(300) }}
+          WARNING - DB interim patch '{{ oneoff_item.label | default(oneoff_item.id) }}' NOT applied:
+          opatch prereq failed (rc={{ patch_db_oneoffs_prereq.rc }}). Home unchanged at RU level.
+          {{ (patch_db_oneoffs_prereq.stdout_lines | default([]))[-15:] | join(' | ') }}
+      when: patch_db_oneoffs_prereq.rc != 0
+
+    - name: Apply this interim patch with opatch
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch"
+          - apply
+          - -silent
+          - -oh
+          - "{{ deployment_plan.release_cfg.DB_HOME }}"
+          - "{{ oneoff_item.dir }}"
+      become: true
+      become_user: oracle
+      changed_when: true
+      async: 3600
+      poll: 30
+      when: patch_db_oneoffs_prereq.rc == 0

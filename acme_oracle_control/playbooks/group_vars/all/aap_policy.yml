@@ -1,0 +1,20 @@
+---
+# Single source of truth for which AAP workflow may change which tier.
+# Read by aap_bootstrap/bootstrap_aap.yml (builds the workflows and RBAC) and
+# by acme.oracle_rdbms.workflow_guard (verifies, through the controller API,
+# that a running job really belongs to one of these workflows). Nothing here
+# is passed as an extra_var, so a launcher cannot override it.
+aap_workflows:
+  - name: Oracle Deploy - Dev/Staging
+    allowed: [dev, staging]
+    environment_choices: "dev\nstaging"
+    requires_approval: false
+    launch_team: Oracle DBA - Operators
+  - name: Oracle Deploy - Prod
+    allowed: [prod]
+    environment_choices: prod
+    requires_approval: true
+    launch_team: Oracle DBA - Prod Operators
+
+aap_preflight_node_identifier: preflight
+aap_approval_node_identifier: approve_change

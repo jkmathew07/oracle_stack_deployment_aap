@@ -1,10 +1,17 @@
 ---
-# Included once per entry in GRID_INTERIM_PATCHES, with oneoff_item and
-# patch_grid_oneoffs_patches_before set by the caller. A block CAN'T carry
-# loop: directly in Ansible, so the per-item block/rescue lives here and
-# main.yml loops over this file with include_tasks instead.
-
-- name: "Apply Grid interim patch: {{ oneoff_item.label | default(oneoff_item.id) }}"
+# Included once per GRID_INTERIM_PATCHES entry (oneoff_item), after
+# patch_grid_oneoffs_patches_before is set by main.yml.
+#
+# A configured Oracle Restart home is root-locked, so interim patches go
+# through opatchauto AS ROOT (it stops/starts HAS and the databases it runs,
+# unlocks/relocks the home). Plain `opatch apply` as grid cannot patch it.
+#
+# Failure policy:
+#   - analyze reports a conflict -> nothing was changed: WARN, record as
+#     skipped, continue (best-effort, the home stays valid at RU level).
+#   - apply itself fails         -> the home or HAS may be half-patched or
+#     down: FAIL the job. That is never safe to report as a warning.
+- name: "Grid interim patch: {{ oneoff_item.label | default(oneoff_item.id) }}"
   when: oneoff_item.id not in (patch_grid_oneoffs_patches_before.stdout | regex_findall('(?m)^([0-9]{5,10});'))
   block:
     - name: Stage this interim patch
@@ -14,16 +21,48 @@
         patch_data: "{{ oneoff_item }}"
         patch_owner: grid
 
-    - name: Apply this interim patch via opatch
+    - name: Analyze this interim patch (no change to the home)
       ansible.builtin.command:
-        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch", apply, "{{ oneoff_item.dir }}", -silent]
-      changed_when: true
+        argv:
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatchauto"
+          - apply
+          - "{{ oneoff_item.dir }}"
+          - -oh
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}"
+          - -analyze
       become: true
-      become_user: grid
-  rescue:
-    - name: "Warn — interim patch error treated as non-fatal"
+      changed_when: false
+      failed_when: false
+      async: 3600
+      poll: 30
+      register: patch_grid_oneoffs_analyze
+
+    - name: Warn and skip - conflict or prerequisite failure (home unchanged)
+      ansible.builtin.set_fact:
+        patch_grid_oneoffs_skipped: >-
+          {{ patch_grid_oneoffs_skipped | default([]) +
+             [{'id': oneoff_item.id, 'label': oneoff_item.label | default(oneoff_item.id),
+               'reason': 'opatchauto -analyze rc=' ~ patch_grid_oneoffs_analyze.rc}] }}
+      when: patch_grid_oneoffs_analyze.rc != 0
+
+    - name: Report the skipped interim patch
       ansible.builtin.debug:
         msg: >-
-          WARNING — Grid interim patch '{{ oneoff_item.label | default(oneoff_item.id) }}'
-          failed or conflicted; the Grid home remains valid at the RU level.
-          Review manually: {{ ansible_failed_result.msg | default('see output above') | truncate(300) }}
+          WARNING - Grid interim patch '{{ oneoff_item.label | default(oneoff_item.id) }}' NOT applied:
+          opatchauto -analyze failed (rc={{ patch_grid_oneoffs_analyze.rc }}). Home unchanged at RU level.
+          {{ (patch_grid_oneoffs_analyze.stdout_lines | default([]))[-15:] | join(' | ') }}
+      when: patch_grid_oneoffs_analyze.rc != 0
+
+    - name: Apply this interim patch with opatchauto as root
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatchauto"
+          - apply
+          - "{{ oneoff_item.dir }}"
+          - -oh
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}"
+      become: true
+      changed_when: true
+      async: 3600
+      poll: 30
+      when: patch_grid_oneoffs_analyze.rc == 0

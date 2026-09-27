@@ -9,6 +9,12 @@ aap_project_playbook_prefix: acme_oracle_control/
 aap_inventory_name: Oracle Targets
 aap_execution_environment: Oracle Deploy EE 2.1
 aap_machine_credential: Oracle Targets - Machine
+# Type "Red Hat Ansible Automation Platform"; read-only user/token used by
+# workflow_guard to verify workflow run, approval and plan via the API.
+aap_controller_credential: Oracle Deploy - Controller API Read Only
+# Team allowed to approve approval-gated (production) workflow runs. Keep it
+# separate from the launch teams (segregation of duties).
+aap_change_approver_team: Oracle Change Approvers
 
 aap_nodes:
   - {identifier: preflight, name: Oracle 00 Preflight, playbook: playbooks/00_preflight.yml}
@@ -20,13 +26,8 @@ aap_nodes:
   - {identifier: db_patch, name: Oracle 06 Patch DB, playbook: playbooks/06_patch_db.yml}
   - {identifier: verify, name: Oracle 07 Verify, playbook: playbooks/07_verify.yml}
 
-aap_workflows:
-  - name: Oracle Deploy - Dev/Staging
-    allowed: [dev, staging]
-    environment_choices: "dev\nstaging"
-  - name: Oracle Deploy - Prod
-    allowed: [prod]
-    environment_choices: prod
+# aap_workflows (names, tiers, approval, launch teams) lives in
+# ../playbooks/group_vars/all/aap_policy.yml so workflow_guard reads the same data.
 
 aap_survey_spec:
   name: Oracle deployment request

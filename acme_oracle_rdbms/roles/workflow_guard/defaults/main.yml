@@ -1,0 +1,8 @@
+---
+# Policy comes from the control repo (playbooks/group_vars/all/aap_policy.yml).
+# Fail closed: without it, no AAP workflow is trusted.
+workflow_guard_workflows: "{{ aap_workflows | default([]) }}"
+workflow_guard_preflight_node: "{{ aap_preflight_node_identifier | default('preflight') }}"
+workflow_guard_approval_node: "{{ aap_approval_node_identifier | default('approve_change') }}"
+# 'preflight' for node 00, 'change' for every node that can modify a host.
+workflow_guard_stage: change

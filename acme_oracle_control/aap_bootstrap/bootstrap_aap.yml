@@ -3,7 +3,10 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  vars_files: [bootstrap_vars.yml]
+  vars_files:
+    - bootstrap_vars.yml
+    # aap_workflows is shared with the workflow_guard role; keep one copy.
+    - ../playbooks/group_vars/all/aap_policy.yml
   tasks:
     - name: Create pinned control project
       ansible.controller.project:
@@ -31,8 +34,14 @@
         playbook: "{{ aap_project_playbook_prefix }}{{ item.playbook }}"
         inventory: "{{ aap_inventory_name }}"
         execution_environment: "{{ aap_execution_environment }}"
-        credentials: ["{{ aap_machine_credential }}"]
-        ask_variables_on_launch: true
+        # Controller credential: read-only API access for workflow_guard.
+        credentials:
+          - "{{ aap_machine_credential }}"
+          - "{{ aap_controller_credential }}"
+        # Never prompt: children take only the workflow's survey answers and
+        # the preflight node's set_stats artifacts (passed by the workflow
+        # regardless of this setting). workflow_guard re-checks the plan.
+        ask_variables_on_launch: false
         allow_simultaneous: false
         state: present
       loop: "{{ aap_nodes }}"
@@ -52,7 +61,7 @@
                  [aap_survey_spec.spec[1] | combine({'choices': item.environment_choices})] +
                  aap_survey_spec.spec[2:]
              }) }}
-        extra_vars: "{{ {'workflow_allowed_tiers': item.allowed} }}"
+        ask_variables_on_launch: false
         allow_simultaneous: false
         state: present
       loop: "{{ aap_workflows }}"
@@ -70,16 +79,19 @@
       loop_control:
         label: "{{ item.0.name }} / {{ item.1.identifier }}"
 
-    - name: Create production change approval
+    - name: Create change approval nodes on approval-gated workflows
       ansible.controller.workflow_job_template_node:
-        workflow_job_template: Oracle Deploy - Prod
+        workflow_job_template: "{{ item.name }}"
         organization: "{{ aap_organization }}"
-        identifier: approve_change
+        identifier: "{{ aap_approval_node_identifier }}"
         approval_node:
           name: Approve Oracle host change
           description: Verify target, change ticket, release, media hashes and scope in preflight job output.
           timeout: 86400
         state: present
+      loop: "{{ aap_workflows | selectattr('requires_approval') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     - name: Link the six common stage edges
       ansible.controller.workflow_job_template_node:
@@ -96,17 +108,43 @@
       ansible.controller.workflow_job_template_node:
         workflow_job_template: "{{ item.name }}"
         organization: "{{ aap_organization }}"
-        identifier: preflight
-        success_nodes: "{{ ['approve_change'] if item.allowed == ['prod'] else ['baseline'] }}"
+        identifier: "{{ aap_preflight_node_identifier }}"
+        success_nodes: "{{ [aap_approval_node_identifier] if item.requires_approval else ['baseline'] }}"
         state: present
       loop: "{{ aap_workflows }}"
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Link production approval to OS baseline
+    - name: Link approval to OS baseline
       ansible.controller.workflow_job_template_node:
-        workflow_job_template: Oracle Deploy - Prod
+        workflow_job_template: "{{ item.name }}"
         organization: "{{ aap_organization }}"
-        identifier: approve_change
+        identifier: "{{ aap_approval_node_identifier }}"
         success_nodes: [baseline]
         state: present
+      loop: "{{ aap_workflows | selectattr('requires_approval') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # RBAC is part of the control: operators may launch workflows only. No
+    # team is granted execute on the child job templates, so a stage cannot
+    # be started on its own (workflow_guard also refuses it).
+    - name: Grant launch rights on each workflow to its operator team
+      ansible.controller.role:
+        team: "{{ item.launch_team }}"
+        role: execute
+        workflows: ["{{ item.name }}"]
+        state: present
+      loop: "{{ aap_workflows }}"
+      loop_control:
+        label: "{{ item.name }} -> {{ item.launch_team }}"
+
+    - name: Grant change approval rights on approval-gated workflows
+      ansible.controller.role:
+        team: "{{ aap_change_approver_team }}"
+        role: approval
+        workflows: ["{{ item.name }}"]
+        state: present
+      loop: "{{ aap_workflows | selectattr('requires_approval') | list }}"
+      loop_control:
+        label: "{{ item.name }}"

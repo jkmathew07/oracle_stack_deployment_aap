@@ -28,31 +28,12 @@
           - hostvars[hostname].deployment_tier == deploy_environment
         fail_msg: Invalid request, change ticket or target/environment inventory binding.
 
-    - name: Require AAP workflow approval for production
-      ansible.builtin.assert:
-        that:
-          # awx_workflow_job_id confirms this job is running as part of an AAP
-          # workflow, not a bare/ad-hoc Job Template launch. workflow_allowed_tiers
-          # is the actual trust anchor: it's an extra_var WE set explicitly on
-          # each Workflow Job Template in bootstrap_aap.yml (aap_workflows[].allowed),
-          # not a guess at an AAP-internal variable name. Only the Prod WFJT sets
-          # it to ['prod'], and only the Prod WFJT's graph routes through the
-          # approve_change approval node before this can be reached — so trusting
-          # workflow_allowed_tiers here is equivalent to trusting that the
-          # approval already happened, without this playbook needing to
-          # rediscover the workflow's own name or identity.
-          - awx_workflow_job_id is defined
-          - workflow_allowed_tiers | default([]) == ['prod']
-        fail_msg: >-
-          Production changes must run from the AAP production workflow
-          (workflow_allowed_tiers must be ['prod'] — see aap_bootstrap/bootstrap_vars.yml).
-          A CLI run or a non-prod workflow can never satisfy this.
-      when: deploy_environment == 'prod'
-
-    - name: Match the workflow's permitted environment
-      ansible.builtin.assert:
-        that: deploy_environment in (workflow_allowed_tiers | default(['dev', 'staging']))
-        fail_msg: This workflow does not own the requested environment.
+    - name: Verify workflow provenance and environment ownership (controller API, not extra_vars)
+      ansible.builtin.include_role:
+        name: acme.oracle_rdbms.workflow_guard
+      vars:
+        workflow_guard_environment: "{{ deploy_environment }}"
+        workflow_guard_stage: preflight
 
     - name: Load approved release configuration
       ansible.builtin.include_vars:

@@ -1,17 +1,11 @@
 ---
 # =============================================================================
-# patch_db_oneoffs — restored from the pre-hardening design.
+# patch_db_oneoffs - interim (one-off) patches on top of the DB RU.
 #
-# DELIBERATE DESIGN CHOICE: a one-off patch conflict/failure here is logged
-# as a WARNING, not a hard failure. The RU is already applied and the DB
-# home is in a valid, supported state; an interim patch on top of that is
-# best-effort. This role therefore does NOT fail the play on a patch
-# conflict — that is intentional, not an oversight, and matches the
-# behavior of patch_grid_oneoffs.
-#
-# No-ops cleanly (and fast — gather_facts:false-safe) when
-# DB_INTERIM_PATCHES is empty, which is the default in every shipped
-# config/releases/*.yml until interim patches are explicitly approved.
+# A patch whose conflict check fails is skipped with a warning (home
+# unchanged) and published as db_interim_skipped. A failure during apply
+# fails the job. Databases on the home are already required down by
+# patch_db. No-ops when DB_INTERIM_PATCHES is empty (the shipped default).
 # =============================================================================
 
 - name: Apply requested DB interim patches
@@ -51,7 +45,7 @@
         loop_var: oneoff_item
         label: "{{ oneoff_item.label | default(oneoff_item.id) }}"
 
-    - name: Report final interim patch inventory (informational only)
+    - name: Read final DB OPatch inventory
       ansible.builtin.command:
         argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/OPatch/opatch", lspatches]
       changed_when: false
@@ -59,6 +53,17 @@
       become_user: oracle
       register: patch_db_oneoffs_patches_after
 
-    - name: Display interim patch outcome
-      ansible.builtin.debug:
-        msg: "DB OPatch inventory after interim patching: {{ patch_db_oneoffs_patches_after.stdout_lines }}"
+    - name: Require every non-skipped interim patch to be installed
+      ansible.builtin.assert:
+        that: >-
+          deployment_plan.release_cfg.DB_INTERIM_PATCHES | map(attribute='id')
+          | difference(patch_db_oneoffs_skipped | default([]) | map(attribute='id'))
+          | difference(patch_db_oneoffs_patches_after.stdout | regex_findall('(?m)^([0-9]{5,10});'))
+          | length == 0
+        fail_msg: A DB interim patch reported success but is missing from the OPatch inventory.
+
+    - name: Publish skipped DB interim patches
+      ansible.builtin.set_stats:
+        per_host: false
+        data:
+          db_interim_skipped: "{{ patch_db_oneoffs_skipped | default([]) }}"

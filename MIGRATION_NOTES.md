@@ -147,3 +147,24 @@ and were verified the same way as every other change in this bundle:
 `ansible-playbook --syntax-check` against real `ansible-core 2.21.4` across
 all four `params/examples/*.yml` scenarios, and `ansible-lint --offline` at
 the `production` profile — not just asserted in prose.
+
+## Pass 5 — production-readiness fixes (acme.oracle_rdbms 2.2.0)
+
+- **Approval bypass closed.** `workflow_allowed_tiers` was an extra_var and
+  child job templates prompted for variables, so a direct launch could
+  forge the plan or the prod tier. Child templates no longer prompt; the new
+  `workflow_guard` role verifies provenance, approval and plan integrity via
+  the controller API on every node; bootstrap manages RBAC. Workflow policy
+  moved to `playbooks/group_vars/all/aap_policy.yml`.
+- **Home paths fixed.** `{RU_VERSION}` was never templated. Homes are now
+  literal, release-fixed paths (`19.0.0`, `23.0.0`) patched in place;
+  `RU_VERSION` removed; preflight and CI reject non-literal paths.
+- **Grid interim patches** use `opatchauto` as root (a configured Restart
+  home is root-locked). Conflicts found by analysis are skipped with a
+  warning and published; apply failures now fail the node (Grid and DB).
+- **DB-only installs** create the central inventory when absent and run
+  `orainstRoot.sh`.
+- `tests/verify_contract.py`: stale Pass 4 PREINSTALL `rhel` checks
+  replaced; regression guards added for all four fixes.
+- Rebuild `dist/acme-oracle_rdbms-2.2.0.tar.gz` and publish to Hub.
+

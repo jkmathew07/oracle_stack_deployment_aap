@@ -10,6 +10,28 @@
       Each release's supported OS/version combinations are owned by
       config/releases/{{ deployment_plan.release }}.yml (SUPPORTED_OS).
 
+- name: Require literal, absolute, release-fixed Oracle paths
+  ansible.builtin.assert:
+    that:
+      - item.value is string
+      - item.value is match('^/[A-Za-z0-9._/-]+$')
+      - "'..' not in item.value"
+    fail_msg: >-
+      {{ item.key }}='{{ item.value }}' is not a literal absolute path. Oracle
+      homes are fixed per release and patched in place; do not template them.
+  loop: >-
+    {{ deployment_plan.release_cfg | dict2items
+       | selectattr('key', 'in', ['ORA_INVENTORY', 'GRID_HOME', 'GRID_BASE', 'DB_HOME', 'DB_BASE']) | list }}
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Require the Grid home outside every Oracle base
+  ansible.builtin.assert:
+    that:
+      - not (deployment_plan.release_cfg.GRID_HOME ~ '/').startswith(deployment_plan.release_cfg.GRID_BASE ~ '/')
+      - not (deployment_plan.release_cfg.GRID_HOME ~ '/').startswith(deployment_plan.release_cfg.DB_BASE ~ '/')
+    fail_msg: Oracle Restart requires GRID_HOME outside GRID_BASE and DB_BASE (root-owned path).
+
 - name: Require an approved Linux combination for this release
   ansible.builtin.assert:
     that:

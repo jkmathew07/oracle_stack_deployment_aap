@@ -37,7 +37,12 @@ def verify():
     assert [link['to'] for link in links] == [
         'reboot', 'grid_install', 'grid_patch', 'db_install', 'db_patch', 'verify'
     ]
-    assert len(bootstrap['aap_workflows']) == 2
+    policy = yaml.safe_load((CONTROL / 'playbooks/group_vars/all/aap_policy.yml').read_text())
+    assert 'aap_workflows' not in bootstrap, 'aap_workflows must live only in aap_policy.yml'
+    assert len(policy['aap_workflows']) == 2
+    prod = [w for w in policy['aap_workflows'] if 'prod' in w['allowed']]
+    assert len(prod) == 1 and prod[0]['allowed'] == ['prod'] and prod[0]['requires_approval'] is True, \
+        'Exactly one workflow may own prod, alone, and it must require approval'
     for node in bootstrap['aap_nodes']:
         assert (CONTROL / node['playbook']).exists(), node
         assert (ROOT / (bootstrap['aap_project_playbook_prefix'] + node['playbook'])).exists(), node
@@ -68,8 +73,14 @@ def verify():
             f'{rfile.name}: regression guard — REQUIRE_RU_ON_MAJOR_VERSIONS was replaced by MIN_RU_VERSION_ON_MAJOR_VERSION'
         assert 'PREINSTALL_PACKAGE' in release and 'name' in release['PREINSTALL_PACKAGE'], \
             f'{rfile.name}: PREINSTALL_PACKAGE.name must be defined'
-        assert 'rhel' in release['PREINSTALL_PACKAGE'], \
-            f'{rfile.name}: PREINSTALL_PACKAGE.rhel must be defined (even if only placeholder entries)'
+        # Fix 2: homes are literal, release-fixed paths patched in place.
+        assert 'RU_VERSION' not in release, f'{rfile.name}: RU_VERSION must not drive home paths'
+        for key in ('ORA_INVENTORY', 'GRID_HOME', 'GRID_BASE', 'DB_HOME', 'DB_BASE'):
+            value = release[key]
+            assert value.startswith('/') and not any(c in value for c in '{}%$'), \
+                f'{rfile.name}: {key} must be a literal absolute path, got {value!r}'
+        assert not (release['GRID_HOME'] + '/').startswith(release['GRID_BASE'] + '/'), \
+            f'{rfile.name}: GRID_HOME must be outside GRID_BASE'
     release_names = {f.stem for f in release_files}
     assert {'19c', '26ai'} <= release_names, 'Both 19c and 26ai release configs must exist'
 
@@ -97,17 +108,12 @@ def verify():
     assert 'get_url' not in baseline_src_full and 'rpm_key' not in baseline_src_full, \
         'regression guard: the RHEL preinstall RPM must be pre-staged + checksummed by preflight, ' \
         'not live-downloaded (see MIGRATION_NOTES.md) — no get_url/rpm_key in configure_baseline'
-    preflight_full = (ROOT / 'acme_oracle_rdbms/roles/preflight/tasks/main.yml').read_text()
-    assert "combine({'label': 'Oracle preinstall package'})" in preflight_full, \
-        'preflight must compute the RHEL preinstall RPM as an artifact for the ' \
-        'existing generic checksum loop to cover'
-    assert 'deployment_plan.artifacts + preflight_rhel_preinstall_artifact' in preflight_full, \
-        'the generic checksum loop must include the RHEL preinstall artifact'
-    for rfile in release_files:
-        release = yaml.safe_load(rfile.read_text())
-        for major, entry in release['PREINSTALL_PACKAGE'].get('rhel', {}).items():
-            assert 'path' in entry and 'sha256' in entry and 'url' not in entry, \
-                f'{rfile.name}: PREINSTALL_PACKAGE.rhel["{major}"] must be a local {{path, sha256}} artifact, not a URL'
+    # Pass 4: RHEL-side Oracle RPMs come from oracle_os_packages_local and are
+    # hash-checked by preflight before configure_baseline installs them.
+    assert 'oracle_os_packages_local' in preflight_src and 'oracle_os_packages_local' in baseline_src_full, \
+        'Locally supplied RPMs must be selected from oracle_os_packages_local in both preflight and baseline'
+    assert 'Verify locally-supplied package hashes before any change' in preflight_src, \
+        'preflight must checksum locally supplied RPMs'
 
     # ── Survey must offer both releases ──────────────────────────────────
     release_question = next(q for q in bootstrap['aap_survey_spec']['spec'] if q['variable'] == 'oracle_release')
@@ -124,24 +130,39 @@ def verify():
     assert 'acme.oracle_rdbms.patch_db_oneoffs' in db_patch_pb, \
         '06_patch_db.yml must include patch_db_oneoffs'
 
-    # ── One-off roles must never call ansible.builtin.fail (warn-not-fail contract) ──
+    # ── Fix 3: interim patches — analyze/prereq conflicts warn, apply failures fail ──
     for role in ('patch_grid_oneoffs', 'patch_db_oneoffs'):
-        role_dir = ROOT / 'acme_oracle_rdbms/roles' / role / 'tasks'
-        role_src = '\n'.join(f.read_text() for f in role_dir.glob('*.yml'))
-        assert 'ansible.builtin.fail' not in role_src, \
-            f'{role}: must stay warn-not-fail on interim patch conflicts, per its own header comment'
+        src = (ROOT / 'acme_oracle_rdbms/roles' / role / 'tasks/apply_one_interim_patch.yml').read_text()
+        assert 'rescue:' not in src, f'{role}: apply failures must not be swallowed by rescue'
+    grid_oneoff = yaml.safe_load(
+        (ROOT / 'acme_oracle_rdbms/roles/patch_grid_oneoffs/tasks/apply_one_interim_patch.yml').read_text())
+    grid_cmds = [t for t in grid_oneoff[0]['block'] if 'ansible.builtin.command' in t]
+    assert grid_cmds and all(t['ansible.builtin.command']['argv'][0].endswith('/OPatch/opatchauto') for t in grid_cmds), \
+        'Grid interim patches must use opatchauto (a configured Restart home is root-locked)'
+    assert all('become_user' not in t for t in grid_cmds), 'opatchauto must run as root'
+
+    # ── Fix 4: DB-only installs must create and register the central inventory ──
+    install_db = (ROOT / 'acme_oracle_rdbms/roles/install_db/tasks/main.yml').read_text()
+    assert 'orainstRoot.sh' in install_db, 'install_db must run orainstRoot.sh on a fresh host'
 
     # ── HugePages must be configured, not just referenced ────────────────
     baseline_src = (ROOT / 'acme_linux_baseline/roles/configure_baseline/tasks/main.yml').read_text()
     assert 'vm.nr_hugepages' in baseline_src, 'HugePages configuration is missing from configure_baseline'
     assert 'oracle_hugepages' in baseline_src, 'HugePages sizing must be RAM-derived via oracle_hugepages, not a hardcoded value'
 
-    # ── Production approval gate must not depend on a guessed AAP variable name ──
-    preflight_pb = (CONTROL / 'playbooks/00_preflight.yml').read_text()
-    assert 'awx_workflow_job_name' not in preflight_pb, \
-        'Regression guard: do not reintroduce the unverified awx_workflow_job_name check'
-    assert 'workflow_allowed_tiers' in preflight_pb, \
-        'Production gate must rely on workflow_allowed_tiers (set explicitly in bootstrap_aap.yml)'
+    # ── Fix 1: provenance is proven via the controller API, never extra_vars ──
+    for file in list(CONTROL.rglob('*.yml')) + list((ROOT / 'acme_oracle_rdbms').rglob('*.yml')):
+        assert 'workflow_allowed_tiers' not in file.read_text(), \
+            f'{file}: trust must not come from a launcher-settable extra_var'
+    for node in bootstrap['aap_nodes']:
+        pb = (CONTROL / node['playbook']).read_text()
+        assert 'acme.oracle_rdbms.workflow_guard' in pb, f"{node['playbook']} must run workflow_guard"
+    bootstrap_pb = yaml.safe_load((CONTROL / 'aap_bootstrap/bootstrap_aap.yml').read_text())
+    bt = {t['name']: t for t in bootstrap_pb[0]['tasks']}
+    jt = bt['Create child job templates']['ansible.controller.job_template']
+    assert jt['ask_variables_on_launch'] is False, 'Child job templates must not prompt for variables'
+    assert '{{ aap_controller_credential }}' in jt['credentials'], 'workflow_guard needs the controller credential'
+    assert any('ansible.controller.role' in t for t in bootstrap_pb[0]['tasks']), 'RBAC must be managed by bootstrap'
 
     print('Offline security and graph checks passed')
 

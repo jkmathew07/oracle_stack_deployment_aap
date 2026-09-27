@@ -51,22 +51,24 @@ scaffolding to qualify before relying on it.
    Project SCM credential and the built EE. Edit
    `aap_bootstrap/bootstrap_vars.yml` to the names and immutable release ref.
    Run bootstrap using the `ansible.controller` collection provided for your
-   AAP 2.7 installation. Keep child template Execute rights restricted and
-   assign separate approvers to the production workflow. The single
-   production approval covers the entire validated change plan before OS
-   and Oracle modifications begin, and is enforced via
-   `workflow_allowed_tiers` (an extra_var set explicitly per-workflow in
-   bootstrap — not a guessed AAP-internal variable name).
+   AAP 2.7 installation. Also create a read-only "Red Hat Ansible
+   Automation Platform" credential (`aap_controller_credential`) and the
+   teams named in `playbooks/group_vars/all/aap_policy.yml` and
+   `aap_change_approver_team`. Bootstrap grants Execute on the workflows
+   only (never on child job templates) and Approve on the prod workflow.
+   Every node runs `acme.oracle_rdbms.workflow_guard`, which checks via the
+   controller API — not extra_vars — that the job belongs to a running
+   workflow that owns the tier, that this run's approval node succeeded,
+   and that the plan equals the one this run's preflight published.
 6. Prevent overlapping changes to the same target through a change scheduler
    or target lock service. `allow_simultaneous: false` serializes each workflow
    template, but cannot coordinate another workflow or a CLI invocation.
 
 Credentials and SSH keys belong in AAP credentials or a managed local SSH
 agent. Do not store them in inventory, Git or params. Production operations
-must use the AAP approval workflow. The CLI path is limited to dev/staging —
-`workflow_allowed_tiers` and `awx_workflow_job_id` are never set outside a
-real AAP workflow run, so a CLI attempt against `deploy_environment: prod`
-always fails closed at preflight.
+must use the AAP approval workflow. The CLI path is limited to dev/staging:
+without `awx_job_id` workflow_guard refuses prod, and with one it verifies
+the job through the controller API.
 
 ## AAP flow
 
@@ -77,8 +79,9 @@ artifacts); other jobs receive it as an extra variable. The target is
 checked against that plan before any changes on every job. No decision node
 signals an intended skip by failing. `verify` re-checks live target state
 (HAS status, OPatch inventory on both homes, `vm.nr_hugepages`) and fails
-if the RU-level state is wrong — interim/one-off patch state is reported
-for visibility only and never fails this final check.
+if the RU-level state is wrong. Interim patches that fail their conflict
+check are skipped with a warning and listed as `*_interim_skipped`; an
+interim patch that fails during apply fails its patch node.
 
 ## Command-line flow
 

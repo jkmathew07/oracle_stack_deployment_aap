@@ -23,7 +23,34 @@
   become: true
   when: install_db_db_install_needed
   block:
-    - name: Create Oracle directories
+    # DB-only installs (no Grid) run on hosts where nothing has created the
+    # OFA root or the central inventory yet. Only create what is missing so
+    # an existing site layout (e.g. /u01/app owned by grid) is never changed.
+    - name: Inspect the Oracle software root
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.ORA_INVENTORY | dirname }}"
+      register: install_db_software_root
+
+    - name: Create the Oracle software root when missing
+      ansible.builtin.file:
+        path: "{{ deployment_plan.release_cfg.ORA_INVENTORY | dirname }}"
+        owner: root
+        group: oinstall
+        mode: '0775'
+        state: directory
+      when: not install_db_software_root.stat.exists
+
+    - name: Create the central inventory when no Oracle software exists yet
+      ansible.builtin.file:
+        path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}"
+        owner: oracle
+        group: oinstall
+        mode: '0770'
+        state: directory
+      when: not install_db_db_inventory_stat.stat.exists
+
+    # Base first: creating the home first would create the base implicitly.
+    - name: Create Oracle base and home
       ansible.builtin.file:
         path: "{{ item }}"
         owner: oracle
@@ -31,8 +58,8 @@
         state: directory
         mode: '0775'
       loop:
-        - "{{ deployment_plan.release_cfg.DB_HOME }}"
         - "{{ deployment_plan.release_cfg.DB_BASE }}"
+        - "{{ deployment_plan.release_cfg.DB_HOME }}"
 
     - name: Unpack approved Database image
       ansible.builtin.unarchive:
@@ -99,6 +126,12 @@
       async: 7200
       poll: 30
       when: not deployment_plan.patch_db
+
+    - name: Register the new central inventory (first Oracle install on host)
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.ORA_INVENTORY }}/orainstRoot.sh"]
+      changed_when: true
+      when: not install_db_db_inventory_stat.stat.exists
 
     - name: Run DB Home root script
       ansible.builtin.command:

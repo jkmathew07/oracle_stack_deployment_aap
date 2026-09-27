@@ -1,0 +1,109 @@
+---
+# =============================================================================
+# workflow_guard — proves where this job came from using the controller API,
+# never extra_vars (anything in extra_vars can be supplied by a launcher).
+#
+#   CLI / navigator run (no awx_job_id): dev and staging only.
+#   AAP run: the job must be running inside a running workflow listed in
+#   aap_workflows that owns the requested tier. For every 'change' stage:
+#     - the deployment_plan received must equal the one published by the
+#       preflight node of THE SAME workflow run (no forged plans), and
+#     - on approval-gated workflows, the approval node of THE SAME run must
+#       have succeeded.
+#
+# Requires a "Red Hat Ansible Automation Platform" credential on every Oracle
+# job template (injects CONTROLLER_HOST / CONTROLLER_OAUTH_TOKEN for the
+# ansible.controller.controller_api lookup). Read-only access is sufficient.
+# =============================================================================
+- name: Require a valid environment to check
+  ansible.builtin.assert:
+    that: workflow_guard_environment | default('') in ['dev', 'staging', 'prod']
+    fail_msg: workflow_guard_environment must be dev, staging or prod.
+
+- name: Refuse production outside AAP
+  ansible.builtin.assert:
+    that: workflow_guard_environment != 'prod' or awx_job_id is defined
+    fail_msg: Production changes must run from the AAP production workflow.
+
+- name: Verify workflow provenance through the controller API
+  when: awx_job_id is defined
+  run_once: true
+  block:
+    - name: Read this job from the controller
+      ansible.builtin.set_fact:
+        workflow_guard_job: "{{ lookup('ansible.controller.controller_api', 'jobs/' ~ (awx_job_id | int) ~ '/') }}"
+
+    - name: Require a running, workflow-launched job
+      ansible.builtin.assert:
+        that:
+          - workflow_guard_job.status | default('') == 'running'
+          - workflow_guard_job.launch_type | default('') == 'workflow'
+          - workflow_guard_job.summary_fields.source_workflow_job.id is defined
+        fail_msg: Oracle job templates must be launched by an approved workflow, never directly.
+
+    - name: Read the parent workflow run
+      ansible.builtin.set_fact:
+        workflow_guard_wf: >-
+          {{ lookup('ansible.controller.controller_api',
+                    'workflow_jobs/' ~ workflow_guard_job.summary_fields.source_workflow_job.id ~ '/') }}
+
+    - name: Resolve the policy for this workflow
+      ansible.builtin.set_fact:
+        workflow_guard_policy: >-
+          {{ workflow_guard_workflows
+             | selectattr('name', 'equalto', workflow_guard_wf.summary_fields.workflow_job_template.name | default(''))
+             | first | default({}) }}
+
+    - name: Require a known workflow that owns the requested environment
+      ansible.builtin.assert:
+        that:
+          - workflow_guard_wf.status | default('') == 'running'
+          - workflow_guard_policy.allowed is defined
+          - workflow_guard_environment in workflow_guard_policy.allowed
+        fail_msg: >-
+          Workflow '{{ workflow_guard_wf.summary_fields.workflow_job_template.name | default('unknown') }}'
+          is not allowed to change '{{ workflow_guard_environment }}'.
+
+    - name: Checks for stages that can change the host
+      when: workflow_guard_stage == 'change'
+      block:
+        - name: Read the nodes of this workflow run
+          ansible.builtin.set_fact:
+            workflow_guard_nodes: >-
+              {{ query('ansible.controller.controller_api',
+                       'workflow_jobs/' ~ workflow_guard_wf.id ~ '/workflow_nodes/',
+                       query_params={'page_size': 200}, return_all=true) }}
+
+        - name: Locate the preflight and approval nodes of this run
+          ansible.builtin.set_fact:
+            workflow_guard_preflight_job_node: >-
+              {{ workflow_guard_nodes | selectattr('identifier', 'equalto', workflow_guard_preflight_node) | first | default({}) }}
+            workflow_guard_approval_job_node: >-
+              {{ workflow_guard_nodes | selectattr('identifier', 'equalto', workflow_guard_approval_node) | first | default({}) }}
+
+        - name: Require this run's change approval
+          ansible.builtin.assert:
+            that:
+              - workflow_guard_approval_job_node.summary_fields.job.type | default('') == 'workflow_approval'
+              - workflow_guard_approval_job_node.summary_fields.job.status | default('') == 'successful'
+            fail_msg: The change approval of this workflow run has not been granted.
+          when: workflow_guard_policy.requires_approval | default(true) | bool
+
+        - name: Require a successful preflight in this run
+          ansible.builtin.assert:
+            that: workflow_guard_preflight_job_node.summary_fields.job.status | default('') == 'successful'
+            fail_msg: No successful preflight node in this workflow run.
+
+        - name: Read the plan the preflight node published
+          ansible.builtin.set_fact:
+            workflow_guard_published_plan: >-
+              {{ (lookup('ansible.controller.controller_api',
+                         'jobs/' ~ workflow_guard_preflight_job_node.summary_fields.job.id ~ '/')).artifacts.deployment_plan
+                 | default({}) }}
+
+        - name: Require the received plan to be the approved plan
+          ansible.builtin.assert:
+            that:
+              - workflow_guard_published_plan | length > 0
+              - (workflow_guard_published_plan | to_json(sort_keys=true)) == (deployment_plan | to_json(sort_keys=true))
+            fail_msg: deployment_plan differs from the one validated by preflight in this workflow run.
