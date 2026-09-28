@@ -44,6 +44,8 @@ always get `rpm -K --nosignature`; repo packages rely on the repos' GPG signing.
 
 ## Command line (ansible-playbook)
 
+Needs ansible-core 2.18 or later (tested on 2.19 and 2.21.2).
+
 ```bash
 cd acme_oracle_control
 # Collections from this checkout (ansible.posix comes from Galaxy/Hub):

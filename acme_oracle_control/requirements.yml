@@ -4,13 +4,13 @@
 # CLI straight from this repository instead: see requirements-local.yml.
 collections:
   - name: acme.linux_baseline
-    version: '2.1.0'
+    version: '2.1.1'
   - name: acme.oracle_common
-    version: '1.0.0'
+    version: '1.0.1'
   - name: acme.oracle_19c
-    version: '1.0.0'
+    version: '1.0.1'
   - name: acme.oracle_26ai
-    version: '1.0.0'
+    version: '1.0.1'
   - name: ansible.posix
     version: '2.1.0'
   # AAP only: controller_api lookup used by acme.oracle_common.workflow_guard.

@@ -1,6 +1,6 @@
 namespace: acme
 name: oracle_common
-version: 1.0.0
+version: 1.0.1
 readme: README.md
 authors: [Enterprise Automation Team]
 description: Release-agnostic Oracle deployment controls - request plan, AAP workflow guard, host preflight

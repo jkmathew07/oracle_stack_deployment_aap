@@ -204,3 +204,10 @@ the `production` profile — not just asserted in prose.
 - CLI: `requirements-local.yml` installs the collections from this
   checkout; `ansible.cfg` collections_path covers CLI and EE locations.
 
+## Pass 7.1 — ansible-core 2.21
+
+- `requires_ansible` widened from `>=2.18.0,<2.21.0` to `>=2.18.0` in all
+  four collections (the upper pin blocked ansible-core 2.21.x). Verified on
+  2.19 and 2.21.2; CI runs on 2.20.0 and 2.21.2.
+- Versions bumped for republishing: linux_baseline 2.1.1, oracle_common /
+  oracle_19c / oracle_26ai 1.0.1.

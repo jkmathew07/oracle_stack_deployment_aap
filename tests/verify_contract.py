@@ -59,6 +59,10 @@ def verify():
     local = [c['name'] for c in load(CONTROL / 'requirements-local.yml')['collections'] if c.get('type') == 'dir']
     assert sorted(local) == sorted(f'../acme_{n}' for n in COLL), 'requirements-local.yml must list all 4 source dirs'
 
+    for n, p in COLL.items():
+        assert load(p / 'meta/runtime.yml')['requires_ansible'] == '>=2.18.0', \
+            f'{n}: requires_ansible must be >=2.18.0 (no upper pin; CI tests 2.20 and 2.21)'
+
     # ── AAP policy, graphs, job templates, site playbooks ────────────────
     policy = load(CONTROL / 'playbooks/group_vars/all/aap_policy.yml')
     boot = load(CONTROL / 'aap_bootstrap/bootstrap_vars.yml')
