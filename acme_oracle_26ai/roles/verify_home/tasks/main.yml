@@ -1,0 +1,19 @@
+---
+# verify_home - the image inside a home must be the version its path names.
+- name: Read the composite version of the home
+  ansible.builtin.command:
+    argv: ["{{ verify_home_path }}/bin/oraversion", -compositeVersion]
+  environment:
+    ORACLE_HOME: "{{ verify_home_path }}"
+  become: true
+  become_user: "{{ verify_home_owner }}"
+  changed_when: false
+  register: verify_home_version
+
+- name: Require the home to hold the image version named in its path
+  ansible.builtin.assert:
+    that: >-
+      (verify_home_version.stdout | trim ~ '.').startswith(deployment_plan.release_cfg.RU_VERSION ~ '.')
+    fail_msg: >-
+      {{ verify_home_path }} reports version '{{ verify_home_version.stdout | trim }}' but is named for
+      {{ deployment_plan.release_cfg.RU_VERSION }}. The gold image does not match RU_VERSION.

@@ -1,0 +1,86 @@
+---
+# 26ai support restored from the pre-hardening design, in the 2.0.0 schema.
+# CHANGE_ME / REPLACE_WITH_* values below are placeholders: this release
+# fails closed at preflight (artifact hash check) until every one is
+# replaced with an approved, verified value. Nothing here has been
+# qualified — treat every default as an assumption to confirm, especially
+# SUPPORTED_OS, which is narrower than 19c's because 26ai is a newer
+# release with a smaller certified OS matrix at time of writing.
+SUPPORTED_OS:
+  - { distribution: OracleLinux, major_version: '9' }
+  - { distribution: RedHat, major_version: '9' }
+  - { distribution: OracleLinux, major_version: '10' }
+  - { distribution: RedHat, major_version: '10' }
+
+# 26ai media ships already at a current patch level in most distributions,
+# so there is no equivalent EL-major-version minimum-RU requirement known at
+# time of writing (the RHEL10/EL9 minimum-RU rule the automation enforces
+# applies to 19c only). Leave empty unless Oracle's 26ai support docs say
+# otherwise for your target OS.
+MIN_RU_VERSION_ON_MAJOR_VERSION: {}
+
+MIN_MEM_MB: 16384
+MIN_VCPU: 2
+MIN_SWAP_MB: 16384
+# UNVERIFIED — placeholder only. Confirm the actual response-file schema
+# suffix against the 26ai installer documentation before use; do not assume
+# it follows the same "26.0.0" pattern as the home version.
+RESPONSE_FILE_SCHEMA_VERSION: 'CHANGE_ME_26AI_SCHEMA_VERSION'
+
+# UNVERIFIED placeholders: 26ai versions look like 23.26.<RU>; confirm the RU
+# numbering (RU_NUMBER_INDEX) against Oracle docs. Fails closed until set.
+# ── RU-versioned (out-of-place) Oracle homes ──────────────────────────────
+# Every RU gets its OWN home: /u01/app/<RU_VERSION>/grid and
+# /u01/app/oracle/product/<RU_VERSION>/<name>. A new RU means a NEW home
+# (install + -applyRU); existing homes are never RU-patched in place, so the
+# path always tells the truth about the RU inside it and the previous home
+# stays intact for fallback.
+#
+# *_HOME_PATTERN must contain the literal token {RU_VERSION} exactly once, as a
+# whole path component. It is substituted by plain string replacement in node
+# 00 (never Jinja-evaluated), then the resolved path is validated.
+#
+# RU_VERSION must match GRID_RU/DB_RU: its field at RU_NUMBER_INDEX (0-based,
+# 19.30.0 -> field 1 -> 30) must equal GRID_RU.ru_version / DB_RU.ru_version.
+# A home may be installed WITHOUT an RU only when RU_VERSION == BASE_VERSION
+# (the version of the base media), so a path can never claim an RU it lacks.
+RU_VERSION: '26.6.0'
+BASE_VERSION: '26.3.0'
+RU_NUMBER_INDEX: 2
+
+ORA_INVENTORY: /u01/app/oraInventory
+GRID_HOME_PATTERN: /u01/app/{RU_VERSION}/grid
+GRID_BASE: /u01/app/grid
+DB_HOME_PATTERN: /u01/app/oracle/product/{RU_VERSION}/oracle
+DB_BASE: /u01/app/oracle
+
+
+GRID_MEDIA:
+  path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/grid/p39581618_230000_Linux-x86-64.zip
+  sha256: ''
+DB_MEDIA:
+  path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/oracle/p39581612_230000_Linux-x86-64.zip
+  sha256: ''
+
+#GRID_RU:
+##  path: p39467003_190000_Linux-x86-64.zip
+  sha256: ''
+  id: '39467003'
+  ru_version: 0  # CHANGE_ME_26AI_GRID_RU_VERSION — no minimum enforced for 26ai yet, see MIN_RU_VERSION_ON_MAJOR_VERSION above
+  expected_patch_ids: []  # Fill from qualified OPatch lspatches output.
+  dir: /mnt/nfs/nfsshare/oracle_rus/RU32/grid
+
+DB_RU:
+  path: CHANGE_ME_APPROVED_26AI_DB_RU_ZIP
+  sha256: ''
+  id: '00000001'
+  ru_version: 0  # CHANGE_ME_26AI_DB_RU_VERSION
+  expected_patch_ids: []  # Fill from qualified DB RU manifest.
+  dir: /mnt/nfs/nfsshare/ora_binaries/{RU_VERSION}/db
+
+OPATCH_ZIP:
+  path: /mnt/nfs/nfsshare/ora_binaries/26ai/opatch/LINUX.X64_2326100_opatch.zip
+  sha256: ''
+
+GRID_INTERIM_PATCHES: []
+DB_INTERIM_PATCHES: []

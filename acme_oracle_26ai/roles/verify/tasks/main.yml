@@ -1,0 +1,42 @@
+---
+# verify (26ai) - final live-state check of the requested homes.
+- name: Verify Oracle Restart runtime state
+  ansible.builtin.command:
+    argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/bin/crsctl", check, has]
+  become: true
+  changed_when: false
+  when: deployment_plan.install_grid
+
+- name: Verify Grid home image version
+  ansible.builtin.include_role:
+    name: acme.oracle_26ai.verify_home
+  vars:
+    verify_home_path: "{{ deployment_plan.release_cfg.GRID_HOME }}"
+    verify_home_owner: grid
+  when: deployment_plan.install_grid
+
+- name: Verify DB home image version
+  ansible.builtin.include_role:
+    name: acme.oracle_26ai.verify_home
+  vars:
+    verify_home_path: "{{ deployment_plan.release_cfg.DB_HOME }}"
+    verify_home_owner: oracle
+  when: deployment_plan.install_db
+
+- name: Read current vm.nr_hugepages for the summary
+  ansible.builtin.command:
+    argv: [sysctl, -n, vm.nr_hugepages]
+  become: true
+  changed_when: false
+  register: verify_hugepages
+
+- name: Print deployment result
+  ansible.builtin.debug:
+    msg:
+      target: "{{ inventory_hostname }}"
+      release: "{{ deployment_plan.release }}"
+      image_version: "{{ deployment_plan.release_cfg.RU_VERSION }}"
+      grid_home: "{{ deployment_plan.release_cfg.GRID_HOME if deployment_plan.install_grid else 'not requested' }}"
+      db_home: "{{ deployment_plan.release_cfg.DB_HOME if deployment_plan.install_db else 'not requested' }}"
+      vm_nr_hugepages: "{{ verify_hugepages.stdout | trim }}"
+      database_creation: outside_scope

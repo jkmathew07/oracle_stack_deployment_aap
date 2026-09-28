@@ -1,0 +1,5 @@
+---
+# Installed copies of the collections (CLI) are not linted twice.
+exclude_paths:
+  - acme_oracle_control/collections/
+  - dist/

@@ -1,0 +1,11 @@
+# Oracle AI Database 26ai Grid Infrastructure - software-only (Oracle Restart
+# is configured afterwards with roothas.sh). 21c+ response-file key format.
+# Qualify against <GRID_HOME>/install/response/gridsetup.rsp of your image.
+responseFileVersion=/oracle/install/rspfmt_crsinstall_response_schema_v{{ deployment_plan.release_cfg.RESPONSE_FILE_SCHEMA_VERSION }}
+INVENTORY_LOCATION={{ deployment_plan.release_cfg.ORA_INVENTORY }}
+installOption=CRS_SWONLY
+ORACLE_BASE={{ deployment_plan.release_cfg.GRID_BASE }}
+OSDBA={{ grid_groups | selectattr('name', 'equalto', 'asmdba') | map(attribute='name') | first }}
+OSOPER={{ grid_groups | selectattr('name', 'equalto', 'asmoper') | map(attribute='name') | first }}
+OSASM={{ grid_groups | selectattr('name', 'equalto', 'asmadmin') | map(attribute='name') | first }}
+executeRootScript=false

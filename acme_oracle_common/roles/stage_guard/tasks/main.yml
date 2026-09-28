@@ -1,0 +1,18 @@
+---
+# stage_guard - first thing every node after 00 runs, before any change.
+- name: Confirm this job has an approved single-host deployment plan
+  ansible.builtin.assert:
+    that:
+      - deployment_plan is defined
+      - inventory_hostname == deployment_plan.target
+      - hostvars[inventory_hostname].deployment_tier == deployment_plan.environment
+      - stage_guard_release == '' or deployment_plan.release == stage_guard_release
+    fail_msg: Invalid or mismatched workflow plan (target, tier or release); stopping before changes.
+
+- name: Prove this plan came from an approved run of the owning workflow
+  ansible.builtin.include_role:
+    name: acme.oracle_common.workflow_guard
+  vars:
+    workflow_guard_environment: "{{ deployment_plan.environment }}"
+    workflow_guard_release: "{{ deployment_plan.release }}"
+    workflow_guard_stage: change

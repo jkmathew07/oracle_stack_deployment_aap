@@ -1,12 +1,18 @@
 ---
-# Import published and approved copies from Private Automation Hub.
+# AAP (execution environment build) and CLI with Private Automation Hub:
+#   ansible-galaxy collection install -r requirements.yml -p collections
+# CLI straight from this repository instead: see requirements-local.yml.
 collections:
   - name: acme.linux_baseline
     version: '2.1.0'
-  - name: acme.oracle_rdbms
-    version: '2.3.0'
+  - name: acme.oracle_common
+    version: '1.0.0'
+  - name: acme.oracle_19c
+    version: '1.0.0'
+  - name: acme.oracle_26ai
+    version: '1.0.0'
   - name: ansible.posix
     version: '2.1.0'
-  # controller_api lookup used by acme.oracle_rdbms.workflow_guard. Pin to
-  # the exact version shipped with your AAP 2.7 installation.
+  # AAP only: controller_api lookup used by acme.oracle_common.workflow_guard.
+  # Pin to the exact version shipped with your AAP 2.7 installation.
   - name: ansible.controller

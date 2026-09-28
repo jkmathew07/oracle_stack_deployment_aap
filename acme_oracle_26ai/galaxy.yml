@@ -1,0 +1,10 @@
+namespace: acme
+name: oracle_26ai
+version: 1.0.0
+readme: README.md
+authors: [Enterprise Automation Team]
+description: Oracle AI Database 26ai Restart/DB software install from Oracle-patched gold images into RU-versioned homes
+license: [Apache-2.0]
+dependencies:
+  acme.oracle_common: '>=1.0.0,<2.0.0'
+  acme.linux_baseline: '>=2.1.0,<3.0.0'

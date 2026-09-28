@@ -1,0 +1,35 @@
+---
+# =============================================================================
+# plan (26ai) - adds the gold-image media list to request_plan_base, producing
+# deployment_plan. 26ai homes come from Oracle-patched gold images, so there
+# is no patch scope: a newer image is installed as a new RU-versioned home.
+# =============================================================================
+- name: Require a 26ai base plan with an install requested
+  ansible.builtin.assert:
+    that:
+      - request_plan_base.release == '26ai'
+      - request_plan_base.release_cfg.RELEASE == '26ai'
+      - request_plan_base.install_grid or request_plan_base.install_db
+      - patch | default('none') == 'none'
+    fail_msg: >-
+      26ai requests need a 26ai release file and at least one install. There is no patch
+      scope for 26ai: install the newer gold image as a new home instead.
+
+- name: Validate 26ai gold image and response-file settings (fail closed on placeholders)
+  ansible.builtin.assert:
+    that:
+      - request_plan_base.release_cfg.RESPONSE_FILE_SCHEMA_VERSION is match('^[0-9]{2}[.][0-9]+[.][0-9]+$')
+      - not request_plan_base.install_grid or request_plan_base.release_cfg.GRID_IMAGE.path is match('^/[A-Za-z0-9._/-]+[.]zip$')
+      - not request_plan_base.install_db or request_plan_base.release_cfg.DB_IMAGE.path is match('^/[A-Za-z0-9._/-]+[.]zip$')
+    fail_msg: >-
+      26ai.yml: set RESPONSE_FILE_SCHEMA_VERSION and the GRID_IMAGE/DB_IMAGE paths
+      (absolute .zip from Oracle Support) before use.
+
+- name: Build the 26ai deployment plan  # noqa: var-naming[no-role-prefix] deployment_plan is the cross-role contract
+  ansible.builtin.set_fact:
+    deployment_plan: >-
+      {{ request_plan_base | combine({
+           'artifacts':
+             ([request_plan_base.release_cfg.GRID_IMAGE | combine({'label': 'Grid gold image'})] if request_plan_base.install_grid else []) +
+             ([request_plan_base.release_cfg.DB_IMAGE | combine({'label': 'DB gold image'})] if request_plan_base.install_db else [])
+         }) }}

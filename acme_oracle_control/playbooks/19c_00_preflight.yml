@@ -1,0 +1,35 @@
+---
+# Node 00 for 19c: validates the request and builds the plan on localhost
+# (no host contact), then runs read-only checks on the target.
+- name: 19c - validate request and build the deployment plan
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Validate request, prove provenance, resolve RU-versioned homes
+      ansible.builtin.include_role:
+        name: acme.oracle_common.request_plan
+      vars:
+        request_plan_release: '19c'
+
+    - name: Add 19c-specific plan fields and media
+      ansible.builtin.include_role:
+        name: acme.oracle_19c.plan
+
+    - name: Publish the plan and show it for approval
+      ansible.builtin.include_role:
+        name: acme.oracle_common.publish_plan
+
+- name: 19c - read-only preflight of the target
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: true
+  any_errors_fatal: true
+  tasks:
+    - name: Release-agnostic host checks (OS, media, inventory, Oracle Restart)
+      ansible.builtin.include_role:
+        name: acme.oracle_common.host_preflight
+
+    - name: 19c-specific host checks
+      ansible.builtin.include_role:
+        name: acme.oracle_19c.preflight

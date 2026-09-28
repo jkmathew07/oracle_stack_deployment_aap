@@ -1,0 +1,4 @@
+---
+# Set by the caller: path of the home to check and its software owner.
+verify_home_path: ''
+verify_home_owner: ''

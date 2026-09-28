@@ -1,0 +1,77 @@
+---
+# =============================================================================
+# patch_grid_oneoffs - interim (one-off) patches on top of the Grid RU.
+#
+# Applied with opatchauto as root (see apply_one_interim_patch.yml).
+# A patch that fails ANALYSIS is skipped with a warning (home unchanged) and
+# published as grid_interim_skipped for the verify node and notifications.
+# A patch that fails during APPLY fails the job, and the Restart stack and
+# final OPatch inventory are always checked before this role returns.
+#
+# No-ops when GRID_INTERIM_PATCHES is empty (the shipped default).
+# =============================================================================
+
+- name: Apply requested Grid interim patches
+  when:
+    - deployment_plan.patch_grid
+    - deployment_plan.release_cfg.GRID_INTERIM_PATCHES | default([]) | length > 0
+  become: true
+  block:
+    - name: Confirm Grid home is present
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch"
+      register: patch_grid_oneoffs_grid_opatch
+
+    - name: Fail when Grid home is unavailable
+      ansible.builtin.assert:
+        that: patch_grid_oneoffs_grid_opatch.stat.exists | default(false)
+
+    - name: Update OPatch from approved archive
+      ansible.builtin.include_role:
+        name: acme.oracle_19c.update_opatch
+      vars:
+        opatch_home: "{{ deployment_plan.release_cfg.GRID_HOME }}"
+        opatch_owner: grid
+
+    - name: List installed Grid patches before interim patching
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch", lspatches]
+      changed_when: false
+      register: patch_grid_oneoffs_patches_before
+      become: true
+      become_user: grid
+
+    - name: Apply each approved Grid interim patch
+      ansible.builtin.include_tasks: apply_one_interim_patch.yml
+      loop: "{{ deployment_plan.release_cfg.GRID_INTERIM_PATCHES }}"
+      loop_control:
+        loop_var: oneoff_item
+        label: "{{ oneoff_item.label | default(oneoff_item.id) }}"
+
+    - name: Verify Oracle Restart is running after interim patching
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/bin/crsctl", check, has]
+      changed_when: false
+
+    - name: Read final Grid OPatch inventory
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/OPatch/opatch", lspatches]
+      changed_when: false
+      become: true
+      become_user: grid
+      register: patch_grid_oneoffs_patches_after
+
+    - name: Require every non-skipped interim patch to be installed
+      ansible.builtin.assert:
+        that: >-
+          deployment_plan.release_cfg.GRID_INTERIM_PATCHES | map(attribute='id')
+          | difference(patch_grid_oneoffs_skipped | default([]) | map(attribute='id'))
+          | difference(patch_grid_oneoffs_patches_after.stdout | regex_findall('(?m)^([0-9]{5,10});'))
+          | length == 0
+        fail_msg: A Grid interim patch reported success but is missing from the OPatch inventory.
+
+    - name: Publish skipped Grid interim patches
+      ansible.builtin.set_stats:
+        per_host: false
+        data:
+          grid_interim_skipped: "{{ patch_grid_oneoffs_skipped | default([]) }}"

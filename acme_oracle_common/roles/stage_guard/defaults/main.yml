@@ -1,0 +1,3 @@
+---
+# Release a stage playbook belongs to; '' for shared stages (baseline, reboot).
+stage_guard_release: ''

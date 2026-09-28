@@ -1,0 +1,7 @@
+---
+# 26ai: Oracle Restart + DB home from the gold images (no patch scope).
+hostname: ora-dev-01.example.internal
+deploy_environment: dev
+install_grid: true
+install_db_home: true
+change_ticket: CHG-12347

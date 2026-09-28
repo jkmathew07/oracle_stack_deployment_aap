@@ -1,13 +1,13 @@
 ---
 aap_organization: Oracle Automation
-aap_project_name: Oracle Deploy 2.1
+aap_project_name: Oracle Deploy 3.0
 aap_project_scm_url: https://git.example.internal/oracle/control.git
-aap_project_scm_branch: release/2.1.0
+aap_project_scm_branch: release/3.0.0
 aap_project_scm_credential: Oracle Control SCM - Read Only
-# Repository root contains the three directories in this release bundle.
+# Repository root contains the collection and control directories of this bundle.
 aap_project_playbook_prefix: acme_oracle_control/
 aap_inventory_name: Oracle Targets
-aap_execution_environment: Oracle Deploy EE 2.1
+aap_execution_environment: Oracle Deploy EE 3.0
 aap_machine_credential: Oracle Targets - Machine
 # Type "Red Hat Ansible Automation Platform"; read-only user/token used by
 # workflow_guard to verify workflow run, approval and plan via the API.
@@ -16,35 +16,70 @@ aap_controller_credential: Oracle Deploy - Controller API Read Only
 # separate from the launch teams (segregation of duties).
 aap_change_approver_team: Oracle Change Approvers
 
-aap_nodes:
-  - {identifier: preflight, name: Oracle 00 Preflight, playbook: playbooks/00_preflight.yml}
-  - {identifier: baseline, name: Oracle 01 Baseline, playbook: playbooks/01_baseline.yml}
-  - {identifier: reboot, name: Oracle 02 Reboot, playbook: playbooks/02_reboot.yml}
-  - {identifier: grid_install, name: Oracle 03 Install Grid, playbook: playbooks/03_install_grid.yml}
-  - {identifier: grid_patch, name: Oracle 04 Patch Grid, playbook: playbooks/04_patch_grid.yml}
-  - {identifier: db_install, name: Oracle 05 Install DB, playbook: playbooks/05_install_db.yml}
-  - {identifier: db_patch, name: Oracle 06 Patch DB, playbook: playbooks/06_patch_db.yml}
-  - {identifier: verify, name: Oracle 07 Verify, playbook: playbooks/07_verify.yml}
-
-# aap_workflows (names, tiers, approval, launch teams) lives in
+# aap_workflows (names, release, tiers, approval, launch teams) lives in
 # ../playbooks/group_vars/all/aap_policy.yml so workflow_guard reads the same data.
 
-aap_survey_spec:
-  name: Oracle deployment request
-  description: All media is verified on the target before changes.
-  spec:
+# Every job template. Baseline and reboot are shared by both releases.
+aap_job_templates:
+  - {name: Oracle Common 01 Baseline, playbook: playbooks/common_01_baseline.yml}
+  - {name: Oracle Common 02 Reboot, playbook: playbooks/common_02_reboot.yml}
+  - {name: Oracle 19c 00 Preflight, playbook: playbooks/19c_00_preflight.yml}
+  - {name: Oracle 19c 03 Install Grid, playbook: playbooks/19c_03_install_grid.yml}
+  - {name: Oracle 19c 04 Patch Grid, playbook: playbooks/19c_04_patch_grid.yml}
+  - {name: Oracle 19c 05 Install DB, playbook: playbooks/19c_05_install_db.yml}
+  - {name: Oracle 19c 06 Patch DB, playbook: playbooks/19c_06_patch_db.yml}
+  - {name: Oracle 19c 07 Verify, playbook: playbooks/19c_07_verify.yml}
+  - {name: Oracle 26ai 00 Preflight, playbook: playbooks/26ai_00_preflight.yml}
+  - {name: Oracle 26ai 03 Install Grid, playbook: playbooks/26ai_03_install_grid.yml}
+  - {name: Oracle 26ai 04 Install DB, playbook: playbooks/26ai_04_install_db.yml}
+  - {name: Oracle 26ai 05 Verify, playbook: playbooks/26ai_05_verify.yml}
+
+# Workflow graph per release. preflight -> [approve_change] -> baseline is
+# linked separately according to each workflow's requires_approval.
+aap_release_graphs:
+  '19c':
+    nodes:
+      - {identifier: preflight, job_template: Oracle 19c 00 Preflight}
+      - {identifier: baseline, job_template: Oracle Common 01 Baseline}
+      - {identifier: reboot, job_template: Oracle Common 02 Reboot}
+      - {identifier: grid_install, job_template: Oracle 19c 03 Install Grid}
+      - {identifier: grid_patch, job_template: Oracle 19c 04 Patch Grid}
+      - {identifier: db_install, job_template: Oracle 19c 05 Install DB}
+      - {identifier: db_patch, job_template: Oracle 19c 06 Patch DB}
+      - {identifier: verify, job_template: Oracle 19c 07 Verify}
+    links:
+      - {from: baseline, to: reboot}
+      - {from: reboot, to: grid_install}
+      - {from: grid_install, to: grid_patch}
+      - {from: grid_patch, to: db_install}
+      - {from: db_install, to: db_patch}
+      - {from: db_patch, to: verify}
+  '26ai':
+    nodes:
+      - {identifier: preflight, job_template: Oracle 26ai 00 Preflight}
+      - {identifier: baseline, job_template: Oracle Common 01 Baseline}
+      - {identifier: reboot, job_template: Oracle Common 02 Reboot}
+      - {identifier: grid_install, job_template: Oracle 26ai 03 Install Grid}
+      - {identifier: db_install, job_template: Oracle 26ai 04 Install DB}
+      - {identifier: verify, job_template: Oracle 26ai 05 Verify}
+    links:
+      - {from: baseline, to: reboot}
+      - {from: reboot, to: grid_install}
+      - {from: grid_install, to: db_install}
+      - {from: db_install, to: verify}
+
+# Survey per release. Question 2 (Environment) gets each workflow's choices.
+aap_surveys:
+  '19c':
     - {question_name: Target inventory hostname, variable: hostname, type: text, required: true}
     - {question_name: Environment, variable: deploy_environment, type: multiplechoice, choices: "dev\nstaging", required: true}
-    - {question_name: Oracle release, variable: oracle_release, type: multiplechoice, choices: "19c\n26ai", required: true}
     - {question_name: "Install Grid?", variable: install_grid, type: multiplechoice, choices: "true\nfalse", required: true}
     - {question_name: "Install DB Home?", variable: install_db_home, type: multiplechoice, choices: "true\nfalse", required: true}
     - {question_name: Patch scope, variable: patch, type: multiplechoice, choices: "none\ngrid\ndb\nboth", required: true}
     - {question_name: Approved change ticket, variable: change_ticket, type: text, required: true}
-
-aap_links:
-  - {from: baseline, to: reboot}
-  - {from: reboot, to: grid_install}
-  - {from: grid_install, to: grid_patch}
-  - {from: grid_patch, to: db_install}
-  - {from: db_install, to: db_patch}
-  - {from: db_patch, to: verify}
+  '26ai':
+    - {question_name: Target inventory hostname, variable: hostname, type: text, required: true}
+    - {question_name: Environment, variable: deploy_environment, type: multiplechoice, choices: "dev\nstaging", required: true}
+    - {question_name: "Install Grid (Oracle Restart)?", variable: install_grid, type: multiplechoice, choices: "true\nfalse", required: true}
+    - {question_name: "Install DB Home?", variable: install_db_home, type: multiplechoice, choices: "true\nfalse", required: true}
+    - {question_name: Approved change ticket, variable: change_ticket, type: text, required: true}

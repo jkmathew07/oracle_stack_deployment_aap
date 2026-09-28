@@ -18,29 +18,31 @@ oracle_os_packages:
   - libxcb
   - libxcb-devel
 
+# Oracle-provided RPMs staged for RHEL. sha256 optional ('' = not pinned);
+# preflight always verifies the RPM's internal digests (rpm -K --nosignature).
 oracle_os_packages_local_dir: /mnt/nfsshare/oracle_packages/
 oracle_os_packages_local:
     - major_version: '8'
       release: '19c'
       filename: oracle-database-preinstall-19c-1.0-3.el8.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
+      sha256: ''
     - major_version: '9'
       release: '19c'
       filename: oracle-database-preinstall-19c-1.0-1.el9.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
+      sha256: ''
     - major_version: '10'
       release: '19c'
       filename: oracle-database-preinstall-19c-1.0-1.el10.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
+      sha256: ''
     - major_version: '8'
       release: '26ai'
       filename: oracle-ai-database-preinstall-26ai-1.0-1.el8.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
+      sha256: ''
     - major_version: '9'
       release: '26ai'
       filename: oracle-ai-database-preinstall-26ai-1.0-1.el9.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
+      sha256: ''
     - major_version: '10'
       release: '26ai'
       filename: oracle-ai-database-preinstall-26ai-1.0-1.el10.x86_64.rpm
-      sha256: REPLACE_WITH_VERIFIED_SHA256
+      sha256: ''

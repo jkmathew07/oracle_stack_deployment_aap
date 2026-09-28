@@ -1,0 +1,5 @@
+---
+# Set by the release's 00_preflight playbook (never by the survey).
+request_plan_release: ''
+# Directory holding <release>.yml. Default: control repo layout.
+request_plan_config_dir: "{{ playbook_dir }}/../config/releases"

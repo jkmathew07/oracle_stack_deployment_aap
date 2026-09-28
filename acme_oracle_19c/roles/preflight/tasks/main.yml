@@ -1,0 +1,40 @@
+---
+# 19c-only host checks. Runs after acme.oracle_common.host_preflight.
+- name: Require a 19c plan
+  ansible.builtin.assert:
+    that: deployment_plan.release == '19c' and deployment_plan.release_cfg.RELEASE == '19c'
+    fail_msg: acme.oracle_19c roles only accept a 19c deployment plan.
+
+- name: Determine minimum RU version required for this release on this OS major version
+  ansible.builtin.set_fact:
+    preflight_min_ru_version: >-
+      {{ (deployment_plan.release_cfg.MIN_RU_VERSION_ON_MAJOR_VERSION | default({}))
+         [ansible_facts.distribution_major_version] | default(0) | int }}
+
+- name: Prevent unpatched installation where the release requires a minimum RU
+  ansible.builtin.assert:
+    that:
+      - not deployment_plan.install_grid or deployment_plan.patch_grid
+      - not deployment_plan.install_db or deployment_plan.patch_db
+    fail_msg: >-
+      A qualified RU must be selected for each newly installed
+      {{ deployment_plan.release }} home on
+      {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }}
+      (see MIN_RU_VERSION_ON_MAJOR_VERSION in
+      config/releases/{{ deployment_plan.release }}.yml).
+  when: preflight_min_ru_version | int > 0
+
+- name: Enforce the minimum RU version itself for this OS major version
+  ansible.builtin.assert:
+    that:
+      - not deployment_plan.patch_grid or (deployment_plan.release_cfg.GRID_RU.ru_version | default(0) | int) >= (preflight_min_ru_version | int)
+      - not deployment_plan.patch_db or (deployment_plan.release_cfg.DB_RU.ru_version | default(0) | int) >= (preflight_min_ru_version | int)
+    fail_msg: >-
+      {{ deployment_plan.release }} on
+      {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }}
+      requires a qualified RU at or above RU{{ preflight_min_ru_version }}
+      (see MIN_RU_VERSION_ON_MAJOR_VERSION in
+      config/releases/{{ deployment_plan.release }}.yml). Configured:
+      GRID_RU=RU{{ deployment_plan.release_cfg.GRID_RU.ru_version | default('unset') }},
+      DB_RU=RU{{ deployment_plan.release_cfg.DB_RU.ru_version | default('unset') }}.
+  when: preflight_min_ru_version | int > 0

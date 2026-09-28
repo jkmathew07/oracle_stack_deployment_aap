@@ -1,0 +1,16 @@
+---
+# CLI runs from a checkout of this repository (no Hub needed for acme.*):
+#   cd acme_oracle_control
+#   ansible-galaxy collection install -r requirements-local.yml -p collections --force
+# ansible.posix still comes from Galaxy/Hub (or pre-install it).
+collections:
+  - name: ../acme_linux_baseline
+    type: dir
+  - name: ../acme_oracle_common
+    type: dir
+  - name: ../acme_oracle_19c
+    type: dir
+  - name: ../acme_oracle_26ai
+    type: dir
+  - name: ansible.posix
+    version: '2.1.0'

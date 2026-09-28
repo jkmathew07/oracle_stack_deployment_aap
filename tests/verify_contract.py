@@ -1,13 +1,28 @@
 #!/usr/bin/env python3
-"""Offline invariants for the AAP and CLI distribution; no target mutations."""
+"""Offline invariants for the 4-collection layout (AAP + CLI); no target mutations."""
 from pathlib import Path
+import re
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / 'acme_oracle_control'
+COLL = {name: ROOT / f'acme_{name}' for name in ('linux_baseline', 'oracle_common', 'oracle_19c', 'oracle_26ai')}
+HEX64 = re.compile(r'^[0-9a-f]{64}$')
 
 
-def tasks(value):
+def load(path):
+    return yaml.safe_load(Path(path).read_text())
+
+
+def text(path):
+    return Path(path).read_text()
+
+
+def role_src(coll, role):
+    return '\n'.join(f.read_text() for f in sorted((COLL[coll] / 'roles' / role).rglob('*.yml')))
+
+
+def no_shell(value):
     if isinstance(value, dict):
         if any(k in value for k in ('ansible.builtin.shell', 'ansible.builtin.raw', 'raw')) or (
             'shell' in value and value['shell'] not in ('/bin/bash', '{{ item.shell }}')
@@ -17,173 +32,146 @@ def tasks(value):
             command = value['ansible.builtin.command']
             assert isinstance(command, dict) and isinstance(command.get('argv'), list), 'Command must use argv'
         for item in value.values():
-            tasks(item)
+            no_shell(item)
     elif isinstance(value, list):
         for item in value:
-            tasks(item)
+            no_shell(item)
 
 
 def verify():
-    for file in ROOT.rglob('*.yml'):
+    code = [f for f in ROOT.rglob('*.yml') if '.git' not in f.parts and 'collections' not in f.relative_to(ROOT).parts[1:2]]
+    for file in code:
         for document in yaml.safe_load_all(file.read_text()):
-            tasks(document)
-    bootstrap = yaml.safe_load((CONTROL / 'aap_bootstrap/bootstrap_vars.yml').read_text())
-    ids = {item['identifier'] for item in bootstrap['aap_nodes']}
-    assert len(ids) == 8
-    links = bootstrap['aap_links']
-    assert [link['from'] for link in links] == [
-        'baseline', 'reboot', 'grid_install', 'grid_patch', 'db_install', 'db_patch'
-    ]
-    assert [link['to'] for link in links] == [
-        'reboot', 'grid_install', 'grid_patch', 'db_install', 'db_patch', 'verify'
-    ]
-    policy = yaml.safe_load((CONTROL / 'playbooks/group_vars/all/aap_policy.yml').read_text())
-    assert 'aap_workflows' not in bootstrap, 'aap_workflows must live only in aap_policy.yml'
-    assert len(policy['aap_workflows']) == 2
-    prod = [w for w in policy['aap_workflows'] if 'prod' in w['allowed']]
-    assert len(prod) == 1 and prod[0]['allowed'] == ['prod'] and prod[0]['requires_approval'] is True, \
-        'Exactly one workflow may own prod, alone, and it must require approval'
-    for node in bootstrap['aap_nodes']:
-        assert (CONTROL / node['playbook']).exists(), node
-        assert (ROOT / (bootstrap['aap_project_playbook_prefix'] + node['playbook'])).exists(), node
-    run = yaml.safe_load((CONTROL / 'playbooks/local_run.yml').read_text())
-    assert [Path(entry['import_playbook']).stem for entry in run] == [
-        Path(node['playbook']).stem for node in bootstrap['aap_nodes']
-    ]
+            no_shell(document)
+        src = file.read_text()
+        assert 'oracle_rdbms' not in src, f'{file}: stale acme.oracle_rdbms reference'
+        assert 'workflow_allowed_tiers' not in src, f'{file}: trust must not come from an extra_var'
 
-    # ── Every release config: distinct GRID_RU/DB_RU, compatibility data present ──
-    releases_dir = CONTROL / 'config/releases'
-    release_files = sorted(releases_dir.glob('*.yml'))
-    assert len(release_files) >= 2, 'Expected at least 19c.yml and 26ai.yml'
-    for rfile in release_files:
-        release = yaml.safe_load(rfile.read_text())
-        assert release['GRID_RU']['path'] != release['DB_RU']['path'], \
-            f'{rfile.name}: GRID_RU and DB_RU must not share a path (regression guard)'
-        assert release['GRID_RU']['id'] != release['DB_RU']['id'], \
-            f'{rfile.name}: GRID_RU and DB_RU must not share a patch id'
-        assert release.get('SUPPORTED_OS'), f'{rfile.name}: SUPPORTED_OS must be defined and non-empty'
-        assert 'RESPONSE_FILE_SCHEMA_VERSION' in release, f'{rfile.name}: RESPONSE_FILE_SCHEMA_VERSION must be defined'
-        assert 'GRID_INTERIM_PATCHES' in release and 'DB_INTERIM_PATCHES' in release, \
-            f'{rfile.name}: interim patch lists must be defined (even if empty)'
-        assert 'ru_version' in release['GRID_RU'] and 'ru_version' in release['DB_RU'], \
-            f'{rfile.name}: GRID_RU/DB_RU must declare ru_version for the minimum-RU check'
-        assert 'MIN_RU_VERSION_ON_MAJOR_VERSION' in release, \
-            f'{rfile.name}: MIN_RU_VERSION_ON_MAJOR_VERSION must be defined (even if empty)'
-        assert 'REQUIRE_RU_ON_MAJOR_VERSIONS' not in release, \
-            f'{rfile.name}: regression guard — REQUIRE_RU_ON_MAJOR_VERSIONS was replaced by MIN_RU_VERSION_ON_MAJOR_VERSION'
-        assert 'PREINSTALL_PACKAGE' in release and 'name' in release['PREINSTALL_PACKAGE'], \
-            f'{rfile.name}: PREINSTALL_PACKAGE.name must be defined'
-        # RU-versioned homes: patterns carry {RU_VERSION} once; no literal homes.
-        assert 'GRID_HOME' not in release and 'DB_HOME' not in release, \
-            f'{rfile.name}: homes must come from *_HOME_PATTERN + RU_VERSION'
-        for key in ('RU_VERSION', 'BASE_VERSION', 'RU_NUMBER_INDEX'):
-            assert key in release, f'{rfile.name}: {key} must be defined'
-        for key in ('GRID_HOME_PATTERN', 'DB_HOME_PATTERN'):
-            value = release[key]
-            assert value.startswith('/') and value.count('{RU_VERSION}') == 1 \
-                and '/{RU_VERSION}/' in value and not any(c in value for c in '%$'), \
-                f'{rfile.name}: {key} must be absolute with {{RU_VERSION}} once as a component, got {value!r}'
-        for key in ('ORA_INVENTORY', 'GRID_BASE', 'DB_BASE'):
-            assert release[key].startswith('/') and not any(c in release[key] for c in '{}%$'), \
-                f'{rfile.name}: {key} must be a literal absolute path'
-        assert not release['GRID_HOME_PATTERN'].startswith(release['GRID_BASE'] + '/'), \
-            f'{rfile.name}: GRID_HOME must be outside GRID_BASE'
-    release_names = {f.stem for f in release_files}
-    assert {'19c', '26ai'} <= release_names, 'Both 19c and 26ai release configs must exist'
+    # ── Collections and dependencies ─────────────────────────────────────
+    meta = {n: load(p / 'galaxy.yml') for n, p in COLL.items()}
+    for n in ('oracle_19c', 'oracle_26ai'):
+        assert 'acme.oracle_common' in meta[n]['dependencies'], f'{n} must depend on acme.oracle_common'
+    assert 'ansible.controller' not in (meta['oracle_common']['dependencies'] or {}), \
+        'ansible.controller must not be a hard dependency (CLI runs without it)'
+    req = {c['name']: c.get('version') for c in load(CONTROL / 'requirements.yml')['collections']}
+    for n, m in meta.items():
+        assert req.get(f'acme.{n}') == str(m['version']), f'requirements.yml must pin acme.{n} {m["version"]}'
+    local = [c['name'] for c in load(CONTROL / 'requirements-local.yml')['collections'] if c.get('type') == 'dir']
+    assert sorted(local) == sorted(f'../acme_{n}' for n in COLL), 'requirements-local.yml must list all 4 source dirs'
 
-    # ── 19c specifically: RHEL/OEL 10 supported, with the stated minimum RUs ──
-    release_19c = yaml.safe_load((releases_dir / '19c.yml').read_text())
-    supported_majors = {(o['distribution'], o['major_version']) for o in release_19c['SUPPORTED_OS']}
-    assert ('OracleLinux', '10') in supported_majors and ('RedHat', '10') in supported_majors, \
-        '19c.yml: SUPPORTED_OS must include major_version 10 for both distributions'
-    assert release_19c['MIN_RU_VERSION_ON_MAJOR_VERSION'].get('9') == 23, \
-        '19c.yml: MIN_RU_VERSION_ON_MAJOR_VERSION["9"] must be 23'
-    assert release_19c['MIN_RU_VERSION_ON_MAJOR_VERSION'].get('10') == 32, \
-        '19c.yml: MIN_RU_VERSION_ON_MAJOR_VERSION["10"] must be 32'
+    # ── AAP policy, graphs, job templates, site playbooks ────────────────
+    policy = load(CONTROL / 'playbooks/group_vars/all/aap_policy.yml')
+    boot = load(CONTROL / 'aap_bootstrap/bootstrap_vars.yml')
+    assert 'aap_workflows' not in boot, 'aap_workflows must live only in aap_policy.yml'
+    jts = {jt['name']: jt['playbook'] for jt in boot['aap_job_templates']}
+    for pb in jts.values():
+        assert (CONTROL / pb).exists(), pb
+    for release in ('19c', '26ai'):
+        wfs = [w for w in policy['aap_workflows'] if w['release'] == release]
+        prod = [w for w in wfs if 'prod' in w['allowed']]
+        assert len(prod) == 1 and prod[0]['allowed'] == ['prod'] and prod[0]['requires_approval'] is True, \
+            f'{release}: exactly one workflow may own prod, alone, and it must require approval'
+        graph = boot['aap_release_graphs'][release]
+        ids = [n['identifier'] for n in graph['nodes']]
+        assert ids[0] == policy['aap_preflight_node_identifier'] and 'baseline' in ids
+        for n in graph['nodes']:
+            assert n['job_template'] in jts, n
+        for link in graph['links']:
+            assert link['from'] in ids and link['to'] in ids, link
+        # Linear chain preflight -> baseline -> ... must match the CLI site playbook order.
+        order = ['preflight', 'baseline']
+        nxt = {l['from']: l['to'] for l in graph['links']}
+        while order[-1] in nxt:
+            order.append(nxt[order[-1]])
+        assert sorted(order) == sorted(ids), f'{release}: graph is not one linear chain'
+        by_id = {n['identifier']: Path(jts[n['job_template']]).name for n in graph['nodes']}
+        site = [e['import_playbook'] for e in load(CONTROL / f'playbooks/{release}_site.yml')]
+        assert site == [by_id[i] for i in order], f'{release}_site.yml must import stages in workflow order'
+        assert 'patch' in [q['variable'] for q in boot['aap_surveys'][release]] or release == '26ai'
+    assert 'patch' not in [q['variable'] for q in boot['aap_surveys']['26ai']], '26ai has no patch scope'
 
-    # ── Preflight must enforce the minimum-RU rule, and never GPG-bypass the preinstall RPM ──
-    preflight_src = (ROOT / 'acme_oracle_rdbms/roles/preflight/tasks/main.yml').read_text()
-    assert 'MIN_RU_VERSION_ON_MAJOR_VERSION' in preflight_src, \
-        'preflight must reference MIN_RU_VERSION_ON_MAJOR_VERSION'
-    assert 'REQUIRE_RU_ON_MAJOR_VERSIONS' not in preflight_src, \
-        'regression guard: preflight must not reference the retired REQUIRE_RU_ON_MAJOR_VERSIONS'
-    baseline_src_full = (ROOT / 'acme_linux_baseline/roles/configure_baseline/tasks/main.yml').read_text()
-    assert 'deployment_plan.release_cfg.PREINSTALL_PACKAGE.name' in baseline_src_full, \
-        'PREINSTALL_PACKAGE.name must be read from config, not hardcoded in the role'
-    assert 'disable_gpg_check: true' not in baseline_src_full, \
-        'regression guard: the RHEL preinstall RPM must never disable GPG checking'
-    assert 'get_url' not in baseline_src_full and 'rpm_key' not in baseline_src_full, \
-        'regression guard: the RHEL preinstall RPM must be pre-staged + checksummed by preflight, ' \
-        'not live-downloaded (see MIGRATION_NOTES.md) — no get_url/rpm_key in configure_baseline'
-    # Pass 4: RHEL-side Oracle RPMs come from oracle_os_packages_local and are
-    # hash-checked by preflight before configure_baseline installs them.
-    assert 'oracle_os_packages_local' in preflight_src and 'oracle_os_packages_local' in baseline_src_full, \
-        'Locally supplied RPMs must be selected from oracle_os_packages_local in both preflight and baseline'
-    assert 'Verify locally-supplied package hashes before any change' in preflight_src, \
-        'preflight must checksum locally supplied RPMs'
+    for pb in sorted((CONTROL / 'playbooks').glob('*.yml')):
+        src = pb.read_text()
+        if pb.name.endswith('_site.yml'):
+            continue
+        if '_00_preflight' in pb.name:
+            release = pb.name.split('_')[0]
+            assert 'acme.oracle_common.request_plan' in src and f"request_plan_release: '{release}'" in src
+            assert f'acme.oracle_{release}.plan' in src and 'acme.oracle_common.publish_plan' in src
+            assert 'acme.oracle_common.host_preflight' in src
+        else:
+            assert 'acme.oracle_common.stage_guard' in src, f'{pb.name} must run stage_guard'
+            if not pb.name.startswith('common_'):
+                assert f"stage_guard_release: '{pb.name.split('_')[0]}'" in src, f'{pb.name} must pin its release'
 
-    # 19c: the RU in the home path must be the RU that gets installed.
-    r19 = yaml.safe_load((releases_dir / '19c.yml').read_text())
-    ru_number = int(r19['RU_VERSION'].split('.')[r19['RU_NUMBER_INDEX']])
-    assert r19['GRID_RU']['ru_version'] == ru_number, '19c.yml: GRID_RU.ru_version must match RU_VERSION'
-
-    # Out-of-place: patch roles must never apply an RU in place.
-    for role in ('patch_grid', 'patch_db'):
-        src = (ROOT / 'acme_oracle_rdbms/roles' / role / 'tasks/main.yml').read_text()
-        assert ' apply' not in src and '- apply' not in src, f'{role}: in-place RU apply is not allowed'
-    pf = (ROOT / 'acme_oracle_rdbms/roles/preflight/tasks/main.yml').read_text()
-    assert '/etc/oracle/olr.loc' in pf, 'preflight must refuse Grid changes when HAS runs from another home'
-    assert "replace('{RU_VERSION}'" in (CONTROL / 'playbooks/00_preflight.yml').read_text(), \
-        'node 00 must resolve homes by plain substitution'
-
-    # ── Survey must offer both releases ──────────────────────────────────
-    release_question = next(q for q in bootstrap['aap_survey_spec']['spec'] if q['variable'] == 'oracle_release')
-    assert '19c' in release_question['choices'] and '26ai' in release_question['choices']
-
-    # ── Interim-patch (one-off) roles exist and are wired into the patch nodes ──
-    for role in ('patch_grid_oneoffs', 'patch_db_oneoffs'):
-        assert (ROOT / 'acme_oracle_rdbms/roles' / role / 'tasks/main.yml').exists(), \
-            f'Missing role: {role}'
-    grid_patch_pb = (CONTROL / 'playbooks/04_patch_grid.yml').read_text()
-    assert 'acme.oracle_rdbms.patch_grid_oneoffs' in grid_patch_pb, \
-        '04_patch_grid.yml must include patch_grid_oneoffs'
-    db_patch_pb = (CONTROL / 'playbooks/06_patch_db.yml').read_text()
-    assert 'acme.oracle_rdbms.patch_db_oneoffs' in db_patch_pb, \
-        '06_patch_db.yml must include patch_db_oneoffs'
-
-    # ── Fix 3: interim patches — analyze/prereq conflicts warn, apply failures fail ──
-    for role in ('patch_grid_oneoffs', 'patch_db_oneoffs'):
-        src = (ROOT / 'acme_oracle_rdbms/roles' / role / 'tasks/apply_one_interim_patch.yml').read_text()
-        assert 'rescue:' not in src, f'{role}: apply failures must not be swallowed by rescue'
-    grid_oneoff = yaml.safe_load(
-        (ROOT / 'acme_oracle_rdbms/roles/patch_grid_oneoffs/tasks/apply_one_interim_patch.yml').read_text())
-    grid_cmds = [t for t in grid_oneoff[0]['block'] if 'ansible.builtin.command' in t]
-    assert grid_cmds and all(t['ansible.builtin.command']['argv'][0].endswith('/OPatch/opatchauto') for t in grid_cmds), \
-        'Grid interim patches must use opatchauto (a configured Restart home is root-locked)'
-    assert all('become_user' not in t for t in grid_cmds), 'opatchauto must run as root'
-
-    # ── Fix 4: DB-only installs must create and register the central inventory ──
-    install_db = (ROOT / 'acme_oracle_rdbms/roles/install_db/tasks/main.yml').read_text()
-    assert 'orainstRoot.sh' in install_db, 'install_db must run orainstRoot.sh on a fresh host'
-
-    # ── HugePages must be configured, not just referenced ────────────────
-    baseline_src = (ROOT / 'acme_linux_baseline/roles/configure_baseline/tasks/main.yml').read_text()
-    assert 'vm.nr_hugepages' in baseline_src, 'HugePages configuration is missing from configure_baseline'
-    assert 'oracle_hugepages' in baseline_src, 'HugePages sizing must be RAM-derived via oracle_hugepages, not a hardcoded value'
-
-    # ── Fix 1: provenance is proven via the controller API, never extra_vars ──
-    for file in list(CONTROL.rglob('*.yml')) + list((ROOT / 'acme_oracle_rdbms').rglob('*.yml')):
-        assert 'workflow_allowed_tiers' not in file.read_text(), \
-            f'{file}: trust must not come from a launcher-settable extra_var'
-    for node in bootstrap['aap_nodes']:
-        pb = (CONTROL / node['playbook']).read_text()
-        assert 'acme.oracle_rdbms.workflow_guard' in pb, f"{node['playbook']} must run workflow_guard"
-    bootstrap_pb = yaml.safe_load((CONTROL / 'aap_bootstrap/bootstrap_aap.yml').read_text())
-    bt = {t['name']: t for t in bootstrap_pb[0]['tasks']}
+    bt = {t['name']: t for t in load(CONTROL / 'aap_bootstrap/bootstrap_aap.yml')[0]['tasks']}
     jt = bt['Create child job templates']['ansible.controller.job_template']
     assert jt['ask_variables_on_launch'] is False, 'Child job templates must not prompt for variables'
     assert '{{ aap_controller_credential }}' in jt['credentials'], 'workflow_guard needs the controller credential'
-    assert any('ansible.controller.role' in t for t in bootstrap_pb[0]['tasks']), 'RBAC must be managed by bootstrap'
+    assert any('ansible.controller.role' in t for t in bt.values()), 'RBAC must be managed by bootstrap'
+    guard = role_src('oracle_common', 'workflow_guard')
+    assert 'workflow_guard_policy.release' in guard and 'to_json(sort_keys=true)' in guard
+
+    # ── Release files ────────────────────────────────────────────────────
+    for release in ('19c', '26ai'):
+        cfg = load(CONTROL / f'config/releases/{release}.yml')
+        assert cfg['RELEASE'] == release
+        assert 'GRID_HOME' not in cfg and 'DB_HOME' not in cfg, 'homes come from *_HOME_PATTERN + RU_VERSION'
+        for key in ('GRID_HOME_PATTERN', 'DB_HOME_PATTERN'):
+            assert cfg[key].startswith('/') and cfg[key].count('{RU_VERSION}') == 1 and '/{RU_VERSION}/' in cfg[key]
+        for key in ('ORA_INVENTORY', 'GRID_BASE', 'DB_BASE'):
+            assert cfg[key].startswith('/') and not any(c in cfg[key] for c in '{}%$')
+        assert not cfg['GRID_HOME_PATTERN'].startswith(cfg['GRID_BASE'] + '/')
+        assert cfg.get('SUPPORTED_OS') and cfg.get('PREINSTALL_PACKAGE', {}).get('name')
+        # Option B: sha256 optional - empty or a real 64-hex value, never a placeholder.
+        for art in [v for v in cfg.values() if isinstance(v, dict) and 'path' in v] + \
+                cfg.get('GRID_INTERIM_PATCHES', []) + cfg.get('DB_INTERIM_PATCHES', []):
+            assert art.get('sha256', '') == '' or HEX64.match(art['sha256']), f'{release}: bad sha256 {art}'
+    for pkg in load(CONTROL / 'playbooks/group_vars/all/os_packages.yml')['oracle_os_packages_local']:
+        assert pkg.get('sha256', '') == '' or HEX64.match(pkg['sha256']), pkg
+
+    c19 = load(CONTROL / 'config/releases/19c.yml')
+    assert int(c19['RU_VERSION'].split('.')[c19['RU_NUMBER_INDEX']]) == c19['GRID_RU']['ru_version']
+    assert c19['MIN_RU_VERSION_ON_MAJOR_VERSION'] == {'9': 23, '10': 32}
+    assert {('OracleLinux', '10'), ('RedHat', '10')} <= {(o['distribution'], o['major_version']) for o in c19['SUPPORTED_OS']}
+    c26 = load(CONTROL / 'config/releases/26ai.yml')
+    for key in ('GRID_RU', 'DB_RU', 'OPATCH_ZIP', 'GRID_INTERIM_PATCHES', 'DB_INTERIM_PATCHES', 'BASE_VERSION'):
+        assert key not in c26, f'26ai.yml: {key} does not apply to gold images'
+    assert 'GRID_IMAGE' in c26 and 'DB_IMAGE' in c26
+
+    # ── Common preflight ─────────────────────────────────────────────────
+    hp = role_src('oracle_common', 'host_preflight')
+    for needle in ('unzip, -tq', '/etc/oracle/olr.loc', 'rpm, -K, --nosignature', 'get_checksum'):
+        assert needle in hp, f'host_preflight must contain {needle}'
+    assert "replace('{RU_VERSION}'" in role_src('oracle_common', 'request_plan'), 'homes resolved by plain substitution'
+
+    # ── 19c behaviour kept ───────────────────────────────────────────────
+    for role in ('patch_grid', 'patch_db'):
+        src = role_src('oracle_19c', role)
+        assert ' apply' not in src and '- apply' not in src, f'{role}: in-place RU apply is not allowed'
+    for role in ('patch_grid_oneoffs', 'patch_db_oneoffs'):
+        assert 'rescue:' not in role_src('oracle_19c', role), f'{role}: apply failures must not be swallowed'
+    grid_oneoff = load(COLL['oracle_19c'] / 'roles/patch_grid_oneoffs/tasks/apply_one_interim_patch.yml')
+    cmds = [t for t in grid_oneoff[0]['block'] if 'ansible.builtin.command' in t]
+    assert cmds and all(t['ansible.builtin.command']['argv'][0].endswith('/OPatch/opatchauto') and 'become_user' not in t
+                        for t in cmds), 'Grid interim patches: opatchauto as root'
+    assert 'orainstRoot.sh' in role_src('oracle_19c', 'install_db')
+    assert '-applyRU' in role_src('oracle_19c', 'install_grid') and '-applyRU' in role_src('oracle_19c', 'install_db')
+    assert 'MIN_RU_VERSION_ON_MAJOR_VERSION' in role_src('oracle_19c', 'preflight')
+
+    # ── 26ai is install-only ─────────────────────────────────────────────
+    all26 = '\n'.join(line for f in COLL['oracle_26ai'].rglob('*.yml')
+                      for line in f.read_text().splitlines() if not line.lstrip().startswith('#'))
+    for needle in ('opatch', 'OPatch', 'applyRU', 'GRID_RU', 'DB_RU', 'INTERIM'):
+        assert needle not in all26, f'acme.oracle_26ai must not contain {needle}'
+    assert 'orainstRoot.sh' in role_src('oracle_26ai', 'install_db')
+    assert 'oraversion' in role_src('oracle_26ai', 'verify_home')
+
+    # ── Baseline unchanged contract ──────────────────────────────────────
+    base = role_src('linux_baseline', 'configure_baseline')
+    assert 'vm.nr_hugepages' in base and 'oracle_hugepages' in base
+    assert 'deployment_plan.release_cfg.PREINSTALL_PACKAGE.name' in base
+    assert 'disable_gpg_check: true' not in base and 'get_url' not in base
 
     print('Offline security and graph checks passed')
 

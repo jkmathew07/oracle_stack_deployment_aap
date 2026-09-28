@@ -1,0 +1,11 @@
+namespace: acme
+name: oracle_common
+version: 1.0.0
+readme: README.md
+authors: [Enterprise Automation Team]
+description: Release-agnostic Oracle deployment controls - request plan, AAP workflow guard, host preflight
+license: [Apache-2.0]
+# ansible.controller is needed only inside AAP (controller_api lookup in
+# workflow_guard) and is shipped in the EE; it is deliberately not a hard
+# dependency so command-line runs work without it.
+dependencies: {}

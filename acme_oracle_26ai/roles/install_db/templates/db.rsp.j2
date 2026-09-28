@@ -1,0 +1,15 @@
+# Oracle AI Database 26ai - software-only home. 21c+ response-file key format.
+# Qualify against <DB_HOME>/install/response/db_install.rsp of your image.
+responseFileVersion=/oracle/install/rspfmt_dbinstall_response_schema_v{{ deployment_plan.release_cfg.RESPONSE_FILE_SCHEMA_VERSION }}
+installOption=INSTALL_DB_SWONLY
+UNIX_GROUP_NAME={{ oracle_users.oracle.primary_group }}
+INVENTORY_LOCATION={{ deployment_plan.release_cfg.ORA_INVENTORY }}
+ORACLE_BASE={{ deployment_plan.release_cfg.DB_BASE }}
+installEdition=EE
+OSDBA={{ oracle_groups | selectattr('name', 'equalto', 'dba') | map(attribute='name') | first }}
+OSOPER={{ oracle_groups | selectattr('name', 'equalto', 'oper') | map(attribute='name') | first }}
+OSBACKUPDBA={{ oracle_groups | selectattr('name', 'equalto', 'backupdba') | map(attribute='name') | first }}
+OSDGDBA={{ oracle_groups | selectattr('name', 'equalto', 'dgdba') | map(attribute='name') | first }}
+OSKMDBA={{ oracle_groups | selectattr('name', 'equalto', 'kmdba') | map(attribute='name') | first }}
+OSRACDBA={{ oracle_groups | selectattr('name', 'equalto', 'racdba') | map(attribute='name') | first }}
+executeRootScript=false

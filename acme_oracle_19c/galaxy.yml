@@ -1,0 +1,10 @@
+namespace: acme
+name: oracle_19c
+version: 1.0.0
+readme: README.md
+authors: [Enterprise Automation Team]
+description: Oracle 19c Restart/DB software install with -applyRU into RU-versioned homes, RU verification and interim patching
+license: [Apache-2.0]
+dependencies:
+  acme.oracle_common: '>=1.0.0,<2.0.0'
+  acme.linux_baseline: '>=2.1.0,<3.0.0'

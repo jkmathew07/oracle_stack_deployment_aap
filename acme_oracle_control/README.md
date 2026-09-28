@@ -1,117 +1,85 @@
-# Oracle 19c/26ai home deployment for Ansible Automation Platform 2.7
+# Oracle 19c / 26ai deployment control
 
-## Supported scope
+Deploys Oracle Restart (Grid) and/or a standalone Database software home on
+one approved host per run, from **AAP 2.7** or the **command line**, using
+the same playbooks and four collections:
 
-Single host Oracle Restart Grid installation, Database Home software-only
-installation, offline Grid/DB Home RU application, and best-effort
-Grid/DB interim (one-off) patching for both **19c and 26ai**. RAC, ASM,
-DBCA, database lifecycle and `datapatch` are **not supported** by this
-release. Patch-only requests are supported for registered existing homes.
-All non-requested stages succeed without changes. A failed RU/install stage
-stops the workflow; a failed interim/one-off patch is logged as a warning
-and does not (see `acme.oracle_rdbms` README). Partial Oracle installer runs
-require a DBA recovery plan.
+| Collection | Purpose |
+|---|---|
+| `acme.linux_baseline` | OS packages, users/groups, kernel, limits, HugePages |
+| `acme.oracle_common` | Request/plan, AAP workflow guard, host preflight (shared by both releases) |
+| `acme.oracle_19c` | 19c install with `-applyRU`, RU verification, interim patches |
+| `acme.oracle_26ai` | 26ai install from Oracle-patched gold images (no patching) |
 
-26ai support is present but **unqualified**: every media path, RU, OPatch
-and SHA-256 value in `config/releases/26ai.yml` is a placeholder, and its
-`SUPPORTED_OS` / `RESPONSE_FILE_SCHEMA_VERSION` values are reasonable
-assumptions, not verified against Oracle's actual 26ai certification and
-installer documentation. Treat 19c as the qualified path and 26ai as
-scaffolding to qualify before relying on it.
+Homes are **RU-versioned** from `RU_VERSION` in `config/releases/<release>.yml`:
+`/u01/app/<RU_VERSION>/grid` and `/u01/app/oracle/product/<RU_VERSION>/oracle`.
+A new RU (19c) or gold image (26ai) is always a new home; existing homes are
+never RU-patched in place. No database is created, moved or datapatched.
 
-## Mandatory site configuration
+## Stages
 
-1. Publish both `acme.*` collections at version 2.1.0 to your private hub.
-   Build the EE from `execution-environment.yml`, qualify the exact
-   `ansible.posix` version and base image, then deploy the tested EE by digest.
-2. Replace the example inventory with an approved inventory source. Every
-   target must belong to `oracle_targets` and have a controlled
-   `deployment_tier` host variable matching the survey environment. Limit
-   source changes and inventory write access to automation administrators.
-3. Review `playbooks/group_vars/all/` kernel parameters, HugePages sizing,
-   users, package names and limits against your certified OS images. Install
-   packages only from signed enterprise repositories. Ensure the image
-   already has THP disabled, SELinux enabled, approved firewall rules, swap
-   and required mounts — this automation verifies that baseline at preflight,
-   it does not configure it.
-4. Fill `config/releases/19c.yml` **and** `config/releases/26ai.yml` with the
-   correct, independently verified Oracle media, OPatch and RU SHA-256
-   values for each release you intend to use. GRID_RU and DB_RU are
-   intentionally distinct, separately-tracked artifacts in both files — do
-   not point them at the same file. Populate `GRID_INTERIM_PATCHES` /
-   `DB_INTERIM_PATCHES` only with approved, checksummed one-off patches; both
-   default to an empty list. Verify patch IDs, home paths, `SUPPORTED_OS`,
-   `REQUIRE_RU_ON_MAJOR_VERSIONS`, `RESPONSE_FILE_SCHEMA_VERSION` and Oracle
-   support certification before approving a release — especially for 26ai,
-   where none of this has been qualified yet.
-5. Put this release bundle at the root of the Git repository referenced by the
-   AAP Project. If publishing only `acme_oracle_control/` as the project root,
-   set `aap_project_playbook_prefix` to an empty string in bootstrap
-   variables. Create AAP organization, inventory source, Machine Credential,
-   Project SCM credential and the built EE. Edit
-   `aap_bootstrap/bootstrap_vars.yml` to the names and immutable release ref.
-   Run bootstrap using the `ansible.controller` collection provided for your
-   AAP 2.7 installation. Also create a read-only "Red Hat Ansible
-   Automation Platform" credential (`aap_controller_credential`) and the
-   teams named in `playbooks/group_vars/all/aap_policy.yml` and
-   `aap_change_approver_team`. Bootstrap grants Execute on the workflows
-   only (never on child job templates) and Approve on the prod workflow.
-   Every node runs `acme.oracle_rdbms.workflow_guard`, which checks via the
-   controller API — not extra_vars — that the job belongs to a running
-   workflow that owns the tier, that this run's approval node succeeded,
-   and that the plan equals the one this run's preflight published.
-6. Prevent overlapping changes to the same target through a change scheduler
-   or target lock service. `allow_simultaneous: false` serializes each workflow
-   template, but cannot coordinate another workflow or a CLI invocation.
+| Node | 19c playbook | 26ai playbook |
+|---|---|---|
+| preflight | `19c_00_preflight.yml` | `26ai_00_preflight.yml` |
+| approval | prod workflows only | prod workflows only |
+| baseline | `common_01_baseline.yml` | `common_01_baseline.yml` |
+| reboot | `common_02_reboot.yml` | `common_02_reboot.yml` |
+| grid install | `19c_03_install_grid.yml` | `26ai_03_install_grid.yml` |
+| grid patch | `19c_04_patch_grid.yml` | — |
+| db install | `19c_05_install_db.yml` | `26ai_04_install_db.yml` |
+| db patch | `19c_06_patch_db.yml` | — |
+| verify | `19c_07_verify.yml` | `26ai_05_verify.yml` |
 
-Credentials and SSH keys belong in AAP credentials or a managed local SSH
-agent. Do not store them in inventory, Git or params. Production operations
-must use the AAP approval workflow. The CLI path is limited to dev/staging:
-without `awx_job_id` workflow_guard refuses prod, and with one it verifies
-the job through the controller API.
+Node 00 validates the request on localhost (no host contact), resolves the
+homes, lists the media, shows the plan for approval, then runs read-only
+checks on the target. Every later node first runs `stage_guard`.
 
-## AAP flow
+## Media integrity (SHA-256 optional)
 
-Homes are RU-versioned: `/u01/app/<RU_VERSION>/grid` and
-`/u01/app/oracle/product/<RU_VERSION>/oracle` (from `*_HOME_PATTERN` in the
-release file). A new RU is always a new home installed with `-applyRU`;
-existing homes are never RU-patched in place.
+Media comes from Oracle Support. For each artifact, `sha256: ''` means "not
+pinned": preflight checks the file exists and tests the archive with
+`unzip -tq`. Paste the SHA-256 from the Oracle Support download page to pin
+the exact file. A malformed value fails closed. Staged Oracle RPMs (RHEL)
+always get `rpm -K --nosignature`; repo packages rely on the repos' GPG signing.
 
-`preflight → approval (prod only) → baseline → reboot → Grid install →
-Grid RU + Grid interim patches → DB install → DB RU + DB interim patches →
-verify`. Preflight publishes one validated plan with `set_stats` (global
-artifacts); other jobs receive it as an extra variable. The target is
-checked against that plan before any changes on every job. No decision node
-signals an intended skip by failing. `verify` re-checks live target state
-(HAS status, OPatch inventory on both homes, `vm.nr_hugepages`) and fails
-if the RU-level state is wrong. Interim patches that fail their conflict
-check are skipped with a warning and listed as `*_interim_skipped`; an
-interim patch that fails during apply fails its patch node.
+## Command line (ansible-playbook)
 
-## Command-line flow
+```bash
+cd acme_oracle_control
+# Collections from this checkout (ansible.posix comes from Galaxy/Hub):
+ansible-galaxy collection install -r requirements-local.yml -p collections --force
+# ...or the published versions from Private Automation Hub:
+# ansible-galaxy collection install -r requirements.yml -p collections
 
-From `acme_oracle_control/` with the same qualified Ansible Core 2.20 and
-collections available (or the same EE through `ansible-navigator`):
-
-```text
-ansible-galaxy collection install ansible.posix:2.1.0 -p collections
-ansible-galaxy collection install ../dist/acme-linux_baseline-2.1.0.tar.gz \
-  ../dist/acme-oracle_rdbms-2.1.0.tar.gz -p collections
-ansible-playbook -i inventory/oracle_targets.yml \
-  playbooks/local_run.yml -e @params/examples/grid_and_db.yml
+ansible-playbook playbooks/19c_site.yml  -e @params/examples/19c_grid_and_db.yml
+ansible-playbook playbooks/26ai_site.yml -e @params/examples/26ai_grid_and_db.yml
 ```
 
-`local_run.yml` imports the same stage playbooks. Set `change_ticket`, exact
-inventory `hostname`, tier, release (`19c` or `26ai`), two install booleans
-and patch scope in an approved params file — see `params/examples/` for one
-example per scenario (19c, 26ai, patch-only, patch-with-interim). The
-samples use fake targets and intentionally unconfigured SHA-256 values; they
-cannot modify a real host until these are replaced. Use `--syntax-check` and
-the offline contract check (`python tests/verify_contract.py`) before running.
+Run from `acme_oracle_control` so `ansible.cfg` is used (Ansible ignores it
+in a world-writable directory — keep the checkout `chmod -R go-w`). The
+`*_site.yml` playbooks run every stage in one process, so the plan stays in
+memory. Production is refused outside AAP; dev and staging are allowed.
 
-No shell or raw Ansible actions are used. Vendor installers are invoked using
-`ansible.builtin.command` with explicit `argv`. RU patch conflicts fail
-rather than rolling back other patches; interim/one-off patch conflicts are
-logged as warnings by design (see `acme.oracle_rdbms` README). Software Home
-verification does not imply DB SQL patching; run and verify `datapatch`
-under a separate approved DBA procedure before returning databases to service.
+## AAP 2.7
+
+1. Publish the four collections to Private Automation Hub and build the EE
+   from `execution-environment.yml` (it also needs `ansible.controller`).
+2. Create the organization, inventory, Machine credential, project SCM
+   credential, a read-only **Red Hat Ansible Automation Platform** credential
+   (`aap_controller_credential`), and the teams named in
+   `playbooks/group_vars/all/aap_policy.yml` and `aap_change_approver_team`.
+3. Edit `aap_bootstrap/bootstrap_vars.yml`, then run
+   `ansible-playbook aap_bootstrap/bootstrap_aap.yml` with `ansible.controller`.
+
+This creates 12 job templates and four workflows —
+`Oracle 19c Deploy - Dev/Staging`, `Oracle 19c Deploy - Prod`,
+`Oracle 26ai Deploy - Dev/Staging`, `Oracle 26ai Deploy - Prod` — each with
+its own survey (26ai has no patch scope). Operators get Execute on
+workflows only; approvers get Approve on the prod workflows. Child job
+templates never prompt for variables, and `workflow_guard` proves through
+the controller API that each job belongs to a running workflow owning that
+release and tier, that this run's approval succeeded, and that the plan is
+the one this run's preflight published.
+
+`allow_simultaneous: false` serialises each template; coordinate changes to
+the same host across workflows or CLI runs through change scheduling.

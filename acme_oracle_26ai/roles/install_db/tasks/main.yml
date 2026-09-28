@@ -1,0 +1,132 @@
+---
+# =============================================================================
+# install_db (26ai) - Database software-only home from the Oracle-patched DB
+# gold image into .../product/<RU_VERSION>/oracle. No OPatch/RU steps.
+# Supports DB-only hosts (creates/registers the central inventory).
+# =============================================================================
+- name: Inspect current DB Home registration
+  ansible.builtin.stat:
+    path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: install_db_inventory_stat
+  become: true
+  when: deployment_plan.install_db
+
+- name: Read DB Home registration
+  ansible.builtin.slurp:
+    src: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: install_db_inventory_xml
+  become: true
+  when: deployment_plan.install_db and install_db_inventory_stat.stat.exists
+
+- name: Compute whether DB Home install is needed
+  ansible.builtin.set_fact:
+    install_db_install_needed: >-
+      {{ deployment_plan.install_db and ('LOC="' ~ deployment_plan.release_cfg.DB_HOME ~ '"' not in
+      (install_db_inventory_xml.content | default('') | b64decode)) }}
+
+- name: Install Oracle Database software
+  become: true
+  when: install_db_install_needed
+  block:
+    # DB-only installs (no Grid) run on hosts where nothing has created the
+    # OFA root or the central inventory yet. Only create what is missing so
+    # an existing site layout (e.g. /u01/app owned by grid) is never changed.
+    - name: Inspect the Oracle software root
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.ORA_INVENTORY | dirname }}"
+      register: install_db_software_root
+
+    - name: Create the Oracle software root when missing
+      ansible.builtin.file:
+        path: "{{ deployment_plan.release_cfg.ORA_INVENTORY | dirname }}"
+        owner: root
+        group: oinstall
+        mode: '0775'
+        state: directory
+      when: not install_db_software_root.stat.exists
+
+    - name: Create the central inventory when no Oracle software exists yet
+      ansible.builtin.file:
+        path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}"
+        owner: oracle
+        group: oinstall
+        mode: '0770'
+        state: directory
+      when: not install_db_inventory_stat.stat.exists
+
+    # Base first: creating the home first would create the base implicitly.
+    - name: Create Oracle base and home
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: oracle
+        group: oinstall
+        state: directory
+        mode: '0775'
+      loop:
+        - "{{ deployment_plan.release_cfg.DB_BASE }}"
+        - "{{ deployment_plan.release_cfg.DB_HOME }}"
+
+    - name: Unpack the Database gold image
+      ansible.builtin.unarchive:
+        src: "{{ deployment_plan.release_cfg.DB_IMAGE.path }}"
+        dest: "{{ deployment_plan.release_cfg.DB_HOME }}"
+        remote_src: true
+        creates: "{{ deployment_plan.release_cfg.DB_HOME }}/runInstaller"
+        owner: oracle
+        group: oinstall
+
+    - name: Write Database response file
+      ansible.builtin.template:
+        src: db.rsp.j2
+        dest: "{{ deployment_plan.release_cfg.DB_HOME }}/db.rsp"
+        owner: oracle
+        group: oinstall
+        mode: '0600'
+      no_log: true
+
+    - name: Install DB software from the gold image
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/runInstaller"
+          - -silent
+          - -responseFile
+          - "{{ deployment_plan.release_cfg.DB_HOME }}/db.rsp"
+          - -waitForCompletion
+      become: true
+      become_user: oracle
+      changed_when: true
+      async: 7200
+      poll: 30
+
+    - name: Register the new central inventory (first Oracle install on host)
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.ORA_INVENTORY }}/orainstRoot.sh"]
+      changed_when: true
+      when: not install_db_inventory_stat.stat.exists
+
+    - name: Run DB Home root script
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.DB_HOME }}/root.sh"]
+      changed_when: true
+      async: 1800
+      poll: 30
+
+- name: Verify Database executable exists
+  ansible.builtin.stat:
+    path: "{{ deployment_plan.release_cfg.DB_HOME }}/bin/oracle"
+  register: install_db_oracle_binary
+  become: true
+  when: deployment_plan.install_db
+
+- name: Assert DB Home installation completed
+  ansible.builtin.assert:
+    that: install_db_oracle_binary.stat.exists | default(false)
+  when: deployment_plan.install_db
+
+- name: Verify the DB home holds the image version its path names
+  ansible.builtin.include_role:
+    name: acme.oracle_26ai.verify_home
+  vars:
+    verify_home_path: "{{ deployment_plan.release_cfg.DB_HOME }}"
+    verify_home_owner: oracle
+  when: deployment_plan.install_db

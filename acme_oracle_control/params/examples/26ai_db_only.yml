@@ -1,0 +1,7 @@
+---
+# 26ai: standalone DB home only (no Grid / Oracle Restart).
+hostname: ora-dev-01.example.internal
+deploy_environment: dev
+install_grid: false
+install_db_home: true
+change_ticket: CHG-12349

@@ -1,50 +1,29 @@
 ---
-# 26ai support restored from the pre-hardening design, in the 2.0.0 schema.
-# CHANGE_ME / REPLACE_WITH_* values below are placeholders: this release
-# fails closed at preflight (artifact hash check) until every one is
-# replaced with an approved, verified value. Nothing here has been
-# qualified — treat every default as an assumption to confirm, especially
-# SUPPORTED_OS, which is narrower than 19c's because 26ai is a newer
-# release with a smaller certified OS matrix at time of writing.
+# Oracle AI Database 26ai release file, used only by the acme.oracle_26ai
+# workflows. Oracle ships 26ai Grid and DB homes as PATCHED GOLD IMAGES, so
+# there is no RU/OPatch/interim patching: a newer image is installed as a new
+# RU-versioned home. CHANGE_ME values fail closed until qualified.
+RELEASE: '26ai'
+
+# Verify against Oracle's 26ai certification matrix before editing.
 SUPPORTED_OS:
   - { distribution: OracleLinux, major_version: '9' }
   - { distribution: RedHat, major_version: '9' }
 
-# 26ai media ships already at a current patch level in most distributions,
-# so there is no equivalent EL-major-version minimum-RU requirement known at
-# time of writing (the RHEL10/EL9 minimum-RU rule the automation enforces
-# applies to 19c only). Leave empty unless Oracle's 26ai support docs say
-# otherwise for your target OS.
-MIN_RU_VERSION_ON_MAJOR_VERSION: {}
-
 MIN_MEM_MB: 16384
 MIN_VCPU: 2
 MIN_SWAP_MB: 16384
-# UNVERIFIED — placeholder only. Confirm the actual response-file schema
-# suffix against the 26ai installer documentation before use; do not assume
-# it follows the same "26.0.0" pattern as the home version.
-RESPONSE_FILE_SCHEMA_VERSION: 'CHANGE_ME_26AI_SCHEMA_VERSION'
 
-# UNVERIFIED placeholders: 26ai versions look like 23.26.<RU>; confirm the RU
-# numbering (RU_NUMBER_INDEX) against Oracle docs. Fails closed until set.
-# ── RU-versioned (out-of-place) Oracle homes ──────────────────────────────
-# Every RU gets its OWN home: /u01/app/<RU_VERSION>/grid and
-# /u01/app/oracle/product/<RU_VERSION>/<name>. A new RU means a NEW home
-# (install + -applyRU); existing homes are never RU-patched in place, so the
-# path always tells the truth about the RU inside it and the previous home
-# stays intact for fallback.
-#
-# *_HOME_PATTERN must contain the literal token {RU_VERSION} exactly once, as a
-# whole path component. It is substituted by plain string replacement in node
-# 00 (never Jinja-evaluated), then the resolved path is validated.
-#
-# RU_VERSION must match GRID_RU/DB_RU: its field at RU_NUMBER_INDEX (0-based,
-# 19.30.0 -> field 1 -> 30) must equal GRID_RU.ru_version / DB_RU.ru_version.
-# A home may be installed WITHOUT an RU only when RU_VERSION == BASE_VERSION
-# (the version of the base media), so a path can never claim an RU it lacks.
-RU_VERSION: 'CHANGE_ME_26AI_RU_VERSION'
-BASE_VERSION: 'CHANGE_ME_26AI_BASE_VERSION'
-RU_NUMBER_INDEX: 2
+# Response-file schema suffix (rspfmt_*_response_schema_v<this>). Take it
+# from <home>/install/response/*.rsp inside the gold image.
+RESPONSE_FILE_SCHEMA_VERSION: 'CHANGE_ME'
+
+# ── RU-versioned homes ────────────────────────────────────────────────────
+# RU_VERSION = the gold image version (NN.N.N, e.g. 23.26.1). It names the
+# homes and is checked against `oraversion -compositeVersion` after install.
+# *_HOME_PATTERN must contain {RU_VERSION} exactly once as a path component;
+# it is substituted by plain string replacement (never Jinja).
+RU_VERSION: 'CHANGE_ME'
 
 ORA_INVENTORY: /u01/app/oraInventory
 GRID_HOME_PATTERN: /u01/app/{RU_VERSION}/grid
@@ -52,37 +31,15 @@ GRID_BASE: /u01/app/grid
 DB_HOME_PATTERN: /u01/app/oracle/product/{RU_VERSION}/oracle
 DB_BASE: /u01/app/oracle
 
-GRID_MEDIA:
-  path: CHANGE_ME_APPROVED_26AI_GRID_MEDIA_ZIP
-  sha256: REPLACE_WITH_VERIFIED_SHA256
-DB_MEDIA:
-  path: CHANGE_ME_APPROVED_26AI_DB_MEDIA_ZIP
-  sha256: REPLACE_WITH_VERIFIED_SHA256
+# Gold images from Oracle Support. sha256 optional ('' = unzip -tq test only).
+GRID_IMAGE:
+  path: CHANGE_ME_26AI_GRID_GOLD_IMAGE_ZIP
+  sha256: ''
+DB_IMAGE:
+  path: CHANGE_ME_26AI_DB_GOLD_IMAGE_ZIP
+  sha256: ''
 
-GRID_RU:
-  path: CHANGE_ME_APPROVED_26AI_GRID_RU_ZIP
-  sha256: REPLACE_WITH_VERIFIED_SHA256
-  id: '00000000'
-  ru_version: 0  # CHANGE_ME_26AI_GRID_RU_VERSION — no minimum enforced for 26ai yet, see MIN_RU_VERSION_ON_MAJOR_VERSION above
-  expected_patch_ids: []  # Fill from qualified OPatch lspatches output.
-  dir: /u01/patches/stage/grid/26ai-ru
-
-DB_RU:
-  path: CHANGE_ME_APPROVED_26AI_DB_RU_ZIP
-  sha256: REPLACE_WITH_VERIFIED_SHA256
-  id: '00000001'
-  ru_version: 0  # CHANGE_ME_26AI_DB_RU_VERSION
-  expected_patch_ids: []  # Fill from qualified DB RU manifest.
-  dir: /u01/patches/stage/db/26ai-ru
-
-OPATCH_ZIP:
-  path: CHANGE_ME_APPROVED_26AI_OPATCH_ZIP
-  sha256: REPLACE_WITH_VERIFIED_SHA256
-
-# Oracle preinstall package, Oracle Linux side only — see the comment in
-# 19c.yml. RHEL is handled by oracle_os_packages_local (Pass 4).
+# Oracle Linux: installed by name from the approved dnf repos. RHEL: staged
+# RPM from oracle_os_packages_local (playbooks/group_vars/all/os_packages.yml).
 PREINSTALL_PACKAGE:
-  name: oracle-database-preinstall-26ai
-
-GRID_INTERIM_PATCHES: []
-DB_INTERIM_PATCHES: []
+  name: oracle-ai-database-preinstall-26ai

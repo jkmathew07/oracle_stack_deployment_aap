@@ -1,0 +1,15 @@
+---
+- name: 19c - verify final Oracle home state
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Guard - approved plan, target, tier, release and workflow provenance
+      ansible.builtin.include_role:
+        name: acme.oracle_common.stage_guard
+      vars:
+        stage_guard_release: '19c'
+  tasks:
+    - name: Check all requested outcomes
+      ansible.builtin.include_role:
+        name: acme.oracle_19c.verify

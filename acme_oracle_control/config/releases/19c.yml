@@ -1,7 +1,9 @@
-
 ---
-# Every artifact SHA-256 must be filled with a verified approved value.
-# Installation intentionally fails closed until this release is qualified.
+# Oracle 19c release file, used only by the acme.oracle_19c workflows.
+# sha256 is OPTIONAL: leave '' to skip pinning (the archive is then tested
+# with unzip -tq), or paste the SHA-256 from the Oracle Support download page
+# to pin the exact file. A malformed value fails closed.
+RELEASE: '19c'
 
 # Compatibility matrix owned here, not hardcoded in the preflight role.
 # Verify against Oracle's published 19c certification matrix before editing.
@@ -61,30 +63,30 @@ DB_BASE: /u01/app/oracle
 
 GRID_MEDIA:
   path: /nfsshare/ora_binaries/grid/LINUX.X64_193000_grid_home.zip
-  sha256: REPLACE_WITH_VERIFIED_SHA256
+  sha256: ''
 DB_MEDIA:
   path: /nfsshare/ora_binaries/oracle/LINUX.X64_193000_db_home.zip
-  sha256: REPLACE_WITH_VERIFIED_SHA256
+  sha256: ''
 
-GRID_RU:
-  path: /nfsshare/oracle_rus/RU30/grid/p38629535_190000_Linux-x86-64.zip
-  sha256: REPLACE_WITH_VERIFIED_SHA256
-  id: '38629535'
-  ru_version: 30  # 19.30 — must be updated whenever the id/path above changes
+GRID_RU: 
+  path: p39467003_190000_Linux-x86-64.zip 
+  sha256: ''
+  id: '39467003'
+  ru_version: 32  # 19.30 — must be updated whenever the id/path above changes
   expected_patch_ids: []  # Fill from qualified OPatch lspatches output.
-  dir: /u01/patches/stage/grid/38629535
+  dir: /mnt/nfs/nfsshare/oracle_rus/RU32/grid/
 
 DB_RU:
-  path: REPLACE_WITH_APPROVED_DB_RU_ZIP
-  sha256: REPLACE_WITH_VERIFIED_SHA256
-  id: '00000000'
+  path: p39472050_190000_Linux-x86-64.zip
+  sha256: ''
+  id: '39472050'
   ru_version: 0  # REPLACE_WITH_APPROVED_DB_RU_VERSION — fails MIN_RU_VERSION_ON_MAJOR_VERSION closed until set
   expected_patch_ids: []  # Fill from qualified DB RU manifest.
-  dir: /u01/patches/stage/db/00000000
+  dir: /mnt/nfs/nfsshare/oracle_rus/RU32/db
 
 OPATCH_ZIP:
-  path: /nfsshare/oracle_rus/RU30/grid/p6880880_190000_Linux-x86-64.zip
-  sha256: REPLACE_WITH_VERIFIED_SHA256
+  path: /mnt/nfs/nfsshare/oracle_rus/RU32/p6880880_190000_Linux-x86-64.zip
+  sha256: ''
 
 # Oracle preinstall package, Oracle Linux side only. On Oracle Linux it's
 # installed directly from the approved dnf repos by name (PREINSTALL_PACKAGE
@@ -103,14 +105,14 @@ PREINSTALL_PACKAGE:
 # before it will actually be staged — leave the list empty for "none approved".
 GRID_INTERIM_PATCHES: []
 # - path: REPLACE_WITH_APPROVED_ONEOFF_ZIP
-#   sha256: REPLACE_WITH_VERIFIED_SHA256
+#   sha256: ''  # optional
 #   label: "Grid oneoff <bug number>"
 #   id: '00000000'
 #   dir: /u01/patches/stage/grid/oneoffs/00000000
 
 DB_INTERIM_PATCHES: []
 # - path: REPLACE_WITH_APPROVED_ONEOFF_ZIP
-#   sha256: REPLACE_WITH_VERIFIED_SHA256
+#   sha256: ''  # optional
 #   label: "DB oneoff <bug number>"
 #   id: '00000000'
 #   dir: /u01/patches/stage/db/oneoffs/00000000

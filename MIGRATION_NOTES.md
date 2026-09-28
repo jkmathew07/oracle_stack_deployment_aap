@@ -185,3 +185,22 @@ the `production` profile — not just asserted in prose.
 - Not automated (by design): moving databases to the new home + datapatch,
   Grid home switch, removal of old homes.
 
+## Pass 7 — split into four collections (3.0.0 control)
+
+- `acme.oracle_rdbms` split into `acme.oracle_common` 1.0.0 (request_plan,
+  publish_plan, workflow_guard, stage_guard, host_preflight),
+  `acme.oracle_19c` 1.0.0 (unchanged 19c logic, new `plan` role) and
+  `acme.oracle_26ai` 1.0.0 (gold-image install_grid/install_db, verify_home,
+  verify — no OPatch/RU/interim). `acme.linux_baseline` unchanged.
+- Control repo: per-release playbooks (`19c_*`, `26ai_*`), shared
+  `common_01_baseline` / `common_02_reboot`, `*_site.yml` for CLI; four AAP
+  workflows (release x dev/staging|prod); per-release surveys; the release is
+  fixed by the playbook and checked against the release file (`RELEASE`),
+  the workflow policy and the plan.
+- SHA-256 optional (option B): empty = `unzip -tq` completeness test;
+  malformed values fail closed. RPMs: `rpm -K --nosignature`.
+- 26ai homes are checked with `oraversion -compositeVersion` against
+  `RU_VERSION` after install and in verify.
+- CLI: `requirements-local.yml` installs the collections from this
+  checkout; `ansible.cfg` collections_path covers CLI and EE locations.
+

@@ -1,0 +1,8 @@
+---
+hostname: ora-dev-01.example.internal
+deploy_environment: dev
+install_grid: true
+install_db_home: true
+# New homes are named by RU_VERSION, so the RU is applied at install.
+patch: both
+change_ticket: CHG-12345

@@ -1,0 +1,31 @@
+---
+# Node 00 for 26ai: validates the request and builds the plan on localhost
+# (no host contact), then runs read-only checks on the target.
+- name: 26ai - validate request and build the deployment plan
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Validate request, prove provenance, resolve RU-versioned homes
+      ansible.builtin.include_role:
+        name: acme.oracle_common.request_plan
+      vars:
+        request_plan_release: '26ai'
+
+    - name: Add 26ai-specific plan fields and media
+      ansible.builtin.include_role:
+        name: acme.oracle_26ai.plan
+
+    - name: Publish the plan and show it for approval
+      ansible.builtin.include_role:
+        name: acme.oracle_common.publish_plan
+
+- name: 26ai - read-only preflight of the target
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: true
+  any_errors_fatal: true
+  tasks:
+    - name: Release-agnostic host checks (OS, media, inventory, Oracle Restart)
+      ansible.builtin.include_role:
+        name: acme.oracle_common.host_preflight

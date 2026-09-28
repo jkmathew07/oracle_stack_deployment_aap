@@ -1,0 +1,73 @@
+---
+# =============================================================================
+# plan (19c) - adds 19c-specific validation, patch scope and media list to
+# acme.oracle_common.request_plan's request_plan_base, producing
+# deployment_plan. Runs on localhost in node 00, before any host is touched.
+# =============================================================================
+- name: Require a 19c base plan and a valid patch scope
+  ansible.builtin.assert:
+    that:
+      - request_plan_base.release == '19c'
+      - request_plan_base.release_cfg.RELEASE == '19c'
+      - patch is defined
+      - patch in ['none', 'grid', 'db', 'both']
+    fail_msg: 19c requests need a 19c release file and patch scope none/grid/db/both.
+
+- name: Validate 19c version fields
+  ansible.builtin.assert:
+    that:
+      - request_plan_base.release_cfg.BASE_VERSION is string
+      - request_plan_base.release_cfg.BASE_VERSION is match('^[0-9]{2}[.][0-9]{1,2}[.][0-9]{1,2}$')
+      - request_plan_base.release_cfg.RU_VERSION is version(request_plan_base.release_cfg.BASE_VERSION, '>=')
+      - request_plan_base.release_cfg.RU_NUMBER_INDEX | int in [0, 1, 2]
+    fail_msg: 19c.yml needs BASE_VERSION (NN.N.N, <= RU_VERSION) and RU_NUMBER_INDEX.
+
+- name: Derive the RU number named in the home paths
+  ansible.builtin.set_fact:
+    plan_ru_number: >-
+      {{ (request_plan_base.release_cfg.RU_VERSION.split('.'))[request_plan_base.release_cfg.RU_NUMBER_INDEX | int] | int }}
+
+- name: Require the RU artifacts to match the RU named in the home paths
+  ansible.builtin.assert:
+    that:
+      # A home can only be installed without an RU if the base media IS that version.
+      - not request_plan_base.install_grid or patch in ['grid', 'both']
+        or request_plan_base.release_cfg.RU_VERSION == request_plan_base.release_cfg.BASE_VERSION
+      - not request_plan_base.install_db or patch in ['db', 'both']
+        or request_plan_base.release_cfg.RU_VERSION == request_plan_base.release_cfg.BASE_VERSION
+      - patch not in ['grid', 'both'] or (request_plan_base.release_cfg.GRID_RU.ru_version | int) == (plan_ru_number | int)
+      - patch not in ['db', 'both'] or (request_plan_base.release_cfg.DB_RU.ru_version | int) == (plan_ru_number | int)
+    fail_msg: >-
+      Homes for RU_VERSION {{ request_plan_base.release_cfg.RU_VERSION }} (RU {{ plan_ru_number }}) must be
+      installed with that RU: select the matching patch scope, and make GRID_RU/DB_RU.ru_version
+      equal {{ plan_ru_number }} (Grid RU {{ request_plan_base.release_cfg.GRID_RU.ru_version }},
+      DB RU {{ request_plan_base.release_cfg.DB_RU.ru_version }} configured).
+
+- name: Build the 19c deployment plan  # noqa: var-naming[no-role-prefix] deployment_plan is the cross-role contract
+  ansible.builtin.set_fact:
+    deployment_plan: >-
+      {{ request_plan_base | combine({
+           'patch_grid': patch in ['grid', 'both'],
+           'patch_db': patch in ['db', 'both'],
+           'artifacts':
+             ([request_plan_base.release_cfg.GRID_MEDIA | combine({'label': 'Grid media'})] if request_plan_base.install_grid else []) +
+             ([request_plan_base.release_cfg.DB_MEDIA | combine({'label': 'DB media'})] if request_plan_base.install_db else []) +
+             ([request_plan_base.release_cfg.GRID_RU | combine({'label': 'Grid RU'})] if patch in ['grid', 'both'] else []) +
+             ([request_plan_base.release_cfg.DB_RU | combine({'label': 'DB RU'})] if patch in ['db', 'both'] else []) +
+             ([request_plan_base.release_cfg.OPATCH_ZIP | combine({'label': 'OPatch'})] if patch != 'none' else []) +
+             ((request_plan_base.release_cfg.GRID_INTERIM_PATCHES | default([]) | selectattr('label', 'defined') | list)
+               if patch in ['grid', 'both'] else []) +
+             ((request_plan_base.release_cfg.DB_INTERIM_PATCHES | default([]) | selectattr('label', 'defined') | list)
+               if patch in ['db', 'both'] else [])
+         }) }}
+
+- name: Require a valid, approved patch manifest for each RU in scope
+  ansible.builtin.assert:
+    that:
+      - not deployment_plan.patch_grid or deployment_plan.release_cfg.GRID_RU.id is match('^[0-9]{5,10}$')
+      - not deployment_plan.patch_grid or deployment_plan.release_cfg.GRID_RU.expected_patch_ids | length > 0
+      - not deployment_plan.patch_grid or deployment_plan.release_cfg.GRID_RU.expected_patch_ids | reject('match', '^[0-9]{5,10}$') | list | length == 0
+      - not deployment_plan.patch_db or deployment_plan.release_cfg.DB_RU.id is match('^[0-9]{5,10}$')
+      - not deployment_plan.patch_db or deployment_plan.release_cfg.DB_RU.expected_patch_ids | length > 0
+      - not deployment_plan.patch_db or deployment_plan.release_cfg.DB_RU.expected_patch_ids | reject('match', '^[0-9]{5,10}$') | list | length == 0
+    fail_msg: Approved RU patch manifest (id / expected_patch_ids) missing or invalid.

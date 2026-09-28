@@ -1,0 +1,76 @@
+---
+# =============================================================================
+# request_plan - runs on localhost in node 00, before connecting to any host.
+# Validates the request, proves workflow provenance, loads the release file
+# and resolves the RU-versioned homes. Produces request_plan_base; the
+# release collection's `plan` role adds release-specific fields and artifacts,
+# then acme.oracle_common.publish_plan hands the plan to later nodes.
+# =============================================================================
+- name: Require a release fixed by the playbook
+  ansible.builtin.assert:
+    that: request_plan_release in ['19c', '26ai']
+    fail_msg: request_plan_release must be set by the release playbook (19c or 26ai).
+
+- name: Validate request and exact inventory binding
+  ansible.builtin.assert:
+    that:
+      - hostname is defined
+      - hostname is string
+      - hostname in (groups['oracle_targets'] | default([]))
+      - deploy_environment is defined
+      - deploy_environment in ['dev', 'staging', 'prod']
+      - install_grid is defined
+      - install_grid in [true, false, 'true', 'false']
+      - install_db_home is defined
+      - install_db_home in [true, false, 'true', 'false']
+      - change_ticket is defined
+      - change_ticket is string
+      - change_ticket is match('^[A-Z][A-Z0-9-]{3,63}$')
+      - hostvars[hostname].deployment_tier is defined
+      - hostvars[hostname].deployment_tier == deploy_environment
+    fail_msg: Invalid request, change ticket or target/environment inventory binding.
+
+- name: Verify workflow provenance, release and environment ownership
+  ansible.builtin.include_role:
+    name: acme.oracle_common.workflow_guard
+  vars:
+    workflow_guard_environment: "{{ deploy_environment }}"
+    workflow_guard_release: "{{ request_plan_release }}"
+    workflow_guard_stage: preflight
+
+- name: Load the approved release configuration
+  ansible.builtin.include_vars:
+    file: "{{ request_plan_config_dir }}/{{ request_plan_release }}.yml"
+    name: request_plan_cfg
+
+- name: Validate release identity, RU_VERSION and home patterns (fail closed on placeholders)
+  ansible.builtin.assert:
+    that:
+      - request_plan_cfg.RELEASE | default('') == request_plan_release
+      - request_plan_cfg.RU_VERSION is string
+      - request_plan_cfg.RU_VERSION is match('^[0-9]{2}[.][0-9]{1,2}[.][0-9]{1,2}$')
+      - request_plan_cfg.GRID_HOME is not defined
+      - request_plan_cfg.DB_HOME is not defined
+      - request_plan_cfg.GRID_HOME_PATTERN is match('^(/[A-Za-z0-9._-]+)*/[{]RU_VERSION[}](/[A-Za-z0-9._-]+)+$')
+      - request_plan_cfg.DB_HOME_PATTERN is match('^(/[A-Za-z0-9._-]+)*/[{]RU_VERSION[}](/[A-Za-z0-9._-]+)+$')
+      - request_plan_cfg.GRID_HOME_PATTERN.split('{RU_VERSION}') | length == 2
+      - request_plan_cfg.DB_HOME_PATTERN.split('{RU_VERSION}') | length == 2
+    fail_msg: >-
+      config/releases/{{ request_plan_release }}.yml: RELEASE must be '{{ request_plan_release }}',
+      RU_VERSION an NN.N.N version, and GRID_HOME_PATTERN/DB_HOME_PATTERN absolute paths
+      containing {RU_VERSION} exactly once as a whole component (no literal GRID_HOME/DB_HOME).
+
+# Plain string replacement - the release file is data and is never Jinja-evaluated.
+- name: Resolve RU-versioned homes and build the base plan
+  ansible.builtin.set_fact:
+    request_plan_base:
+      target: "{{ hostname }}"
+      environment: "{{ deploy_environment }}"
+      release: "{{ request_plan_release }}"
+      ticket: "{{ change_ticket }}"
+      install_grid: "{{ install_grid | bool }}"
+      install_db: "{{ install_db_home | bool }}"
+      release_cfg: >-
+        {{ request_plan_cfg | combine({
+             'GRID_HOME': request_plan_cfg.GRID_HOME_PATTERN | replace('{RU_VERSION}', request_plan_cfg.RU_VERSION),
+             'DB_HOME': request_plan_cfg.DB_HOME_PATTERN | replace('{RU_VERSION}', request_plan_cfg.RU_VERSION)}) }}

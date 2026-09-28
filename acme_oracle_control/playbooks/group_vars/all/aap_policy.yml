@@ -1,16 +1,30 @@
 ---
-# Single source of truth for which AAP workflow may change which tier.
-# Read by aap_bootstrap/bootstrap_aap.yml (builds the workflows and RBAC) and
-# by acme.oracle_rdbms.workflow_guard (verifies, through the controller API,
-# that a running job really belongs to one of these workflows). Nothing here
-# is passed as an extra_var, so a launcher cannot override it.
+# Single source of truth for which AAP workflow may change which release and
+# tier. Read by aap_bootstrap/bootstrap_aap.yml (builds workflows and RBAC)
+# and by acme.oracle_common.workflow_guard (verifies, through the controller
+# API, that a running job belongs to one of these workflows). Nothing here is
+# passed as an extra_var, so a launcher cannot override it.
 aap_workflows:
-  - name: Oracle Deploy - Dev/Staging
+  - name: Oracle 19c Deploy - Dev/Staging
+    release: '19c'
     allowed: [dev, staging]
     environment_choices: "dev\nstaging"
     requires_approval: false
     launch_team: Oracle DBA - Operators
-  - name: Oracle Deploy - Prod
+  - name: Oracle 19c Deploy - Prod
+    release: '19c'
+    allowed: [prod]
+    environment_choices: prod
+    requires_approval: true
+    launch_team: Oracle DBA - Prod Operators
+  - name: Oracle 26ai Deploy - Dev/Staging
+    release: '26ai'
+    allowed: [dev, staging]
+    environment_choices: "dev\nstaging"
+    requires_approval: false
+    launch_team: Oracle DBA - Operators
+  - name: Oracle 26ai Deploy - Prod
+    release: '26ai'
     allowed: [prod]
     environment_choices: prod
     requires_approval: true

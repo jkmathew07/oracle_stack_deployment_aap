@@ -1,0 +1,15 @@
+---
+- name: 26ai - install Grid (Oracle Restart) from the gold image
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Guard - approved plan, target, tier, release and workflow provenance
+      ansible.builtin.include_role:
+        name: acme.oracle_common.stage_guard
+      vars:
+        stage_guard_release: '26ai'
+  tasks:
+    - name: Install Oracle Restart from the gold image
+      ansible.builtin.include_role:
+        name: acme.oracle_26ai.install_grid

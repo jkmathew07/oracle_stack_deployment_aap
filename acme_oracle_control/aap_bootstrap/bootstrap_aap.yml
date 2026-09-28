@@ -1,5 +1,5 @@
 ---
-- name: Define Oracle deploy AAP 2.7 objects
+- name: Define Oracle 19c and 26ai deploy objects on AAP 2.7
   hosts: localhost
   connection: local
   gather_facts: false
@@ -8,6 +8,19 @@
     # aap_workflows is shared with the workflow_guard role; keep one copy.
     - ../playbooks/group_vars/all/aap_policy.yml
   tasks:
+    - name: Attach each workflow's release graph and survey
+      ansible.builtin.set_fact:
+        aap_workflows_expanded: >-
+          {{ aap_workflows_expanded | default([]) + [item | combine({
+               'nodes': aap_release_graphs[item.release].nodes,
+               'links': aap_release_graphs[item.release].links,
+               'survey': aap_surveys[item.release][:1]
+                         + [aap_surveys[item.release][1] | combine({'choices': item.environment_choices})]
+                         + aap_surveys[item.release][2:]})] }}
+      loop: "{{ aap_workflows }}"
+      loop_control:
+        label: "{{ item.name }}"
+
     - name: Create pinned control project
       ansible.controller.project:
         name: "{{ aap_project_name }}"
@@ -44,27 +57,24 @@
         ask_variables_on_launch: false
         allow_simultaneous: false
         state: present
-      loop: "{{ aap_nodes }}"
+      loop: "{{ aap_job_templates }}"
       loop_control:
-        label: "{{ item.identifier }}"
+        label: "{{ item.name }}"
 
-    - name: Create environment-specific workflows and surveys
+    - name: Create release- and environment-specific workflows with surveys
       ansible.controller.workflow_job_template:
         name: "{{ item.name }}"
         organization: "{{ aap_organization }}"
         inventory: "{{ aap_inventory_name }}"
         survey_enabled: true
-        survey_spec: >-
-          {{ aap_survey_spec | combine({
-               'name': item.name,
-               'spec': aap_survey_spec.spec[:1] +
-                 [aap_survey_spec.spec[1] | combine({'choices': item.environment_choices})] +
-                 aap_survey_spec.spec[2:]
-             }) }}
+        survey_spec:
+          name: "{{ item.name }}"
+          description: "Oracle {{ item.release }} deployment request"
+          spec: "{{ item.survey }}"
         ask_variables_on_launch: false
         allow_simultaneous: false
         state: present
-      loop: "{{ aap_workflows }}"
+      loop: "{{ aap_workflows_expanded }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -73,9 +83,9 @@
         workflow_job_template: "{{ item.0.name }}"
         organization: "{{ aap_organization }}"
         identifier: "{{ item.1.identifier }}"
-        unified_job_template: "{{ item.1.name }}"
+        unified_job_template: "{{ item.1.job_template }}"
         state: present
-      loop: "{{ aap_workflows | product(aap_nodes) | list }}"
+      loop: "{{ aap_workflows_expanded | subelements('nodes') }}"
       loop_control:
         label: "{{ item.0.name }} / {{ item.1.identifier }}"
 
@@ -86,25 +96,25 @@
         identifier: "{{ aap_approval_node_identifier }}"
         approval_node:
           name: Approve Oracle host change
-          description: Verify target, change ticket, release, media hashes and scope in preflight job output.
+          description: Verify target, change ticket, release, RU/image version, homes, media and scope in preflight job output.
           timeout: 86400
         state: present
       loop: "{{ aap_workflows | selectattr('requires_approval') | list }}"
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Link the six common stage edges
+    - name: Link the release stage edges
       ansible.controller.workflow_job_template_node:
         workflow_job_template: "{{ item.0.name }}"
         organization: "{{ aap_organization }}"
         identifier: "{{ item.1.from }}"
         success_nodes: ["{{ item.1.to }}"]
         state: present
-      loop: "{{ aap_workflows | product(aap_links) | list }}"
+      loop: "{{ aap_workflows_expanded | subelements('links') }}"
       loop_control:
-        label: "{{ item.0.name }} / {{ item.1.from }}"
+        label: "{{ item.0.name }} / {{ item.1.from }} -> {{ item.1.to }}"
 
-    - name: Link preflight according to environment approval policy
+    - name: Link preflight according to the workflow's approval policy
       ansible.controller.workflow_job_template_node:
         workflow_job_template: "{{ item.name }}"
         organization: "{{ aap_organization }}"

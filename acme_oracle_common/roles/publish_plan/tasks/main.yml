@@ -1,0 +1,41 @@
+---
+# publish_plan - hands the validated deployment_plan to later stages:
+#   AAP: set_stats artifacts (workflow_guard later proves they are unchanged)
+#   CLI: host fact on the target (one ansible-playbook process, site playbook)
+- name: Require a complete plan
+  ansible.builtin.assert:
+    that:
+      - deployment_plan.target is defined
+      - deployment_plan.release in ['19c', '26ai']
+      - deployment_plan.artifacts is defined
+      - deployment_plan.install_grid or deployment_plan.install_db
+        or (deployment_plan.patch_grid | default(false)) or (deployment_plan.patch_db | default(false))
+    fail_msg: No operation selected, or the release plan role did not build a complete plan.
+
+- name: Share validated plan with the target in command-line runs  # noqa: var-naming[no-role-prefix] deployment_plan is the cross-role contract
+  ansible.builtin.set_fact:
+    deployment_plan: "{{ deployment_plan }}"
+  delegate_to: "{{ deployment_plan.target }}"
+  delegate_facts: true
+
+- name: Publish plan to downstream workflow jobs
+  ansible.builtin.set_stats:
+    per_host: false
+    data:
+      deployment_plan: "{{ deployment_plan }}"
+
+- name: Display plan for operator approval
+  ansible.builtin.debug:
+    msg:
+      target: "{{ deployment_plan.target }}"
+      environment: "{{ deployment_plan.environment }}"
+      change_ticket: "{{ deployment_plan.ticket }}"
+      release: "{{ deployment_plan.release }}"
+      ru_version: "{{ deployment_plan.release_cfg.RU_VERSION }}"
+      grid_home: "{{ deployment_plan.release_cfg.GRID_HOME }}"
+      db_home: "{{ deployment_plan.release_cfg.DB_HOME }}"
+      install_grid: "{{ deployment_plan.install_grid }}"
+      install_db: "{{ deployment_plan.install_db }}"
+      patch_grid: "{{ deployment_plan.patch_grid | default('n/a') }}"
+      patch_db: "{{ deployment_plan.patch_db | default('n/a') }}"
+      media: "{{ deployment_plan.artifacts | map(attribute='path') | list }}"

@@ -1,0 +1,19 @@
+---
+- name: 19c - verify Grid RU and apply interim patches
+  hosts: "{{ hostname | default('localhost') }}"
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Guard - approved plan, target, tier, release and workflow provenance
+      ansible.builtin.include_role:
+        name: acme.oracle_common.stage_guard
+      vars:
+        stage_guard_release: '19c'
+  tasks:
+    - name: Verify the Grid home carries its RU
+      ansible.builtin.include_role:
+        name: acme.oracle_19c.patch_grid
+
+    - name: Apply approved Grid interim patches
+      ansible.builtin.include_role:
+        name: acme.oracle_19c.patch_grid_oneoffs

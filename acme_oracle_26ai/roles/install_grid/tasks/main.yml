@@ -1,0 +1,108 @@
+---
+# =============================================================================
+# install_grid (26ai) - Oracle Restart from the Oracle-patched Grid gold image
+# into /u01/app/<RU_VERSION>/grid. No OPatch/RU steps: the image is already
+# patched. acme.oracle_common.host_preflight has already refused this if
+# Oracle Restart runs from another home.
+# =============================================================================
+- name: Inspect current Grid registration
+  ansible.builtin.stat:
+    path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: install_grid_inventory_stat
+  become: true
+  when: deployment_plan.install_grid
+
+- name: Read Grid registration
+  ansible.builtin.slurp:
+    src: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}/ContentsXML/inventory.xml"
+  register: install_grid_inventory_xml
+  become: true
+  when: deployment_plan.install_grid and install_grid_inventory_stat.stat.exists
+
+- name: Compute whether Grid install is needed
+  ansible.builtin.set_fact:
+    install_grid_needed: >-
+      {{ deployment_plan.install_grid and ('LOC="' ~ deployment_plan.release_cfg.GRID_HOME ~ '"' not in
+      (install_grid_inventory_xml.content | default('') | b64decode)) }}
+
+- name: Install Grid gold image and configure Oracle Restart
+  when: install_grid_needed
+  become: true
+  block:
+    - name: Create Oracle directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: "{{ item.owner }}"
+        group: oinstall
+        mode: '0775'
+        state: directory
+      loop:
+        - {path: "{{ deployment_plan.release_cfg.GRID_HOME }}", owner: grid}
+        - {path: "{{ deployment_plan.release_cfg.GRID_BASE }}", owner: grid}
+        - {path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}", owner: grid}
+
+    - name: Unpack the Grid gold image
+      ansible.builtin.unarchive:
+        src: "{{ deployment_plan.release_cfg.GRID_IMAGE.path }}"
+        dest: "{{ deployment_plan.release_cfg.GRID_HOME }}"
+        remote_src: true
+        creates: "{{ deployment_plan.release_cfg.GRID_HOME }}/gridSetup.sh"
+        owner: grid
+        group: oinstall
+
+    - name: Write Grid response file
+      ansible.builtin.template:
+        src: grid.rsp.j2
+        dest: "{{ deployment_plan.release_cfg.GRID_HOME }}/grid.rsp"
+        owner: grid
+        group: oinstall
+        mode: '0600'
+
+    - name: Install Grid software from the gold image
+      ansible.builtin.command:
+        argv:
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}/gridSetup.sh"
+          - -silent
+          - -responseFile
+          - "{{ deployment_plan.release_cfg.GRID_HOME }}/grid.rsp"
+          - -waitforcompletion
+      become: true
+      become_user: grid
+      changed_when: true
+      async: 7200
+      poll: 30
+
+    - name: Run inventory root script
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.ORA_INVENTORY }}/orainstRoot.sh"]
+      changed_when: true
+      when: not install_grid_inventory_stat.stat.exists
+
+    - name: Run Grid root script
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/root.sh"]
+      changed_when: true
+      async: 3600
+      poll: 30
+
+    - name: Configure Oracle Restart
+      ansible.builtin.command:
+        argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/crs/install/roothas.sh"]
+      changed_when: true
+      async: 3600
+      poll: 30
+
+- name: Verify Oracle Restart service
+  ansible.builtin.command:
+    argv: ["{{ deployment_plan.release_cfg.GRID_HOME }}/bin/crsctl", check, has]
+  changed_when: false
+  become: true
+  when: deployment_plan.install_grid
+
+- name: Verify the Grid home holds the image version its path names
+  ansible.builtin.include_role:
+    name: acme.oracle_26ai.verify_home
+  vars:
+    verify_home_path: "{{ deployment_plan.release_cfg.GRID_HOME }}"
+    verify_home_owner: grid
+  when: deployment_plan.install_grid
