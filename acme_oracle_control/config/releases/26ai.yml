@@ -13,7 +13,7 @@ MIN_MEM_MB: 8000
 MIN_VCPU: 2
 MIN_SWAP_MB: 16384
 
-RESPONSE_FILE_SCHEMA_VERSION: 'CHANGE_ME_26AI_SCHEMA_VERSION'
+RESPONSE_FILE_SCHEMA_VERSION: '/oracle/install/rspfmt_dbinstall_response_schema_v23.0.0'
 
 RU_VERSION: '26.6.0'
 BASE_VERSION: '26.3.0'
@@ -30,5 +30,5 @@ GRID_MEDIA:
   path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/grid/p39581618_230000_Linux-x86-64.zip
   sha256: ''
 DB_MEDIA:
-  path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/oracle/
+  path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/oracle/p39581612_230000_Linux-x86-64.zip
   sha256: ''
