@@ -13,6 +13,11 @@
         name: acme.linux_baseline.configure_baseline
       when: deployment_plan.install_grid or deployment_plan.install_db
 
+    - name: Set Transparent HugePages (madvise) now and at every boot
+      ansible.builtin.include_role:
+        name: acme.oracle_common.configure_thp
+      when: deployment_plan.install_grid or deployment_plan.install_db
+
     - name: Publish reboot requirement
       ansible.builtin.set_stats:
         per_host: false

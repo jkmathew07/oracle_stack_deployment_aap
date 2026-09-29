@@ -1,0 +1,6 @@
+---
+# THP mode for Oracle hosts: madvise (default) or never. A release file may
+# override it with THP_MODE. madvise means THP only for memory a process
+# explicitly asks for; Oracle does not ask, so its SGA is never THP-backed.
+configure_thp_mode: "{{ deployment_plan.release_cfg.THP_MODE | default('madvise') }}"
+configure_thp_unit: oracle-thp.service

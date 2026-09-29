@@ -1,0 +1,17 @@
+# Managed by Ansible (acme.oracle_common.configure_thp). Do not edit.
+# Sets Transparent HugePages for Oracle at every boot without kernel
+# command-line (grub) changes. Ordered after tuned (so a tuned profile cannot
+# override it at boot) and before Oracle High Availability Services.
+[Unit]
+Description=Transparent HugePages = {{ configure_thp_mode }} for Oracle
+After=tuned.service
+Before=ohasd.service oracle-ohasd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo {{ configure_thp_mode }} > /sys/kernel/mm/transparent_hugepage/enabled'
+ExecStart=/bin/sh -c 'echo {{ configure_thp_mode }} > /sys/kernel/mm/transparent_hugepage/defrag'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,56 @@
+---
+# =============================================================================
+# configure_thp - sets Transparent HugePages to configure_thp_mode (madvise by
+# default) now and at every boot, through a systemd oneshot unit. No grub /
+# kernel command-line changes and no reboot needed. Idempotent: the unit is
+# only (re)run when the file changes or the live value differs.
+# =============================================================================
+- name: Require a supported THP mode
+  ansible.builtin.assert:
+    that: configure_thp_mode in ['madvise', 'never']
+    fail_msg: "configure_thp_mode must be madvise or never, got '{{ configure_thp_mode }}'."
+
+- name: Install the THP systemd unit
+  ansible.builtin.template:
+    src: oracle-thp.service.j2
+    dest: "/etc/systemd/system/{{ configure_thp_unit }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: configure_thp_unit_file
+
+- name: Read the live THP setting
+  ansible.builtin.slurp:
+    src: /sys/kernel/mm/transparent_hugepage/enabled
+  become: true
+  register: configure_thp_before
+
+- name: Enable the unit for boot and apply the mode now
+  ansible.builtin.systemd_service:
+    name: "{{ configure_thp_unit }}"
+    enabled: true
+    daemon_reload: "{{ configure_thp_unit_file is changed }}"
+    state: >-
+      {{ 'restarted' if (configure_thp_unit_file is changed
+          or ('[' ~ configure_thp_mode ~ ']') not in (configure_thp_before.content | b64decode))
+         else 'started' }}
+  become: true
+
+- name: Read THP settings back
+  ansible.builtin.slurp:
+    src: "/sys/kernel/mm/transparent_hugepage/{{ item }}"
+  loop: [enabled, defrag]
+  become: true
+  register: configure_thp_after
+
+- name: Require THP to be in the configured mode
+  ansible.builtin.assert:
+    that: ('[' ~ configure_thp_mode ~ ']') in (item.content | b64decode)
+    fail_msg: >-
+      /sys/kernel/mm/transparent_hugepage/{{ item.item }} is '{{ item.content | b64decode | trim }}',
+      expected [{{ configure_thp_mode }}]. Check `systemctl status {{ configure_thp_unit }}`
+      and whether a tuned profile or another unit overrides it.
+  loop: "{{ configure_thp_after.results }}"
+  loop_control:
+    label: "{{ item.item }}"
