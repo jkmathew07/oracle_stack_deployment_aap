@@ -14,7 +14,7 @@ MIN_VCPU: 2
 MIN_SWAP_MB: 16384
 
 RESPONSE_FILE_SCHEMA_VERSION: '/oracle/install/rspfmt_dbinstall_response_schema_v23.0.0'
-
+RELEASE: '26ai'
 RU_VERSION: '26.6.0'
 BASE_VERSION: '26.3.0'
 RU_NUMBER_INDEX: 2
