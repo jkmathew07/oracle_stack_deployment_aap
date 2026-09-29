@@ -47,24 +47,51 @@
       - not (deployment_plan.release_cfg.DB_HOME ~ '/').startswith(deployment_plan.release_cfg.GRID_HOME ~ '/')
     fail_msg: Oracle homes must be the RU_VERSION-resolved paths from node 00.
 
-- name: Require an approved Linux combination for this release
+# One check per rule, each naming the actual and required value.
+- name: Require an OS/version certified for this release
+  ansible.builtin.assert:
+    that: >-
+      deployment_plan.release_cfg.SUPPORTED_OS
+      | selectattr('distribution', 'equalto', ansible_facts.distribution)
+      | selectattr('major_version', 'equalto', ansible_facts.distribution_major_version)
+      | list | length > 0
+    fail_msg: >-
+      {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }} is not in SUPPORTED_OS
+      for {{ deployment_plan.release }} ({{ deployment_plan.release_cfg.SUPPORTED_OS
+      | map(attribute='distribution') | zip(deployment_plan.release_cfg.SUPPORTED_OS | map(attribute='major_version'))
+      | map('join', ' ') | join(', ') }}). Add it to config/releases/{{ deployment_plan.release }}.yml only
+      once Oracle certifies it.
+
+- name: Require enough memory
+  ansible.builtin.assert:
+    that: ansible_facts.memtotal_mb | int >= (deployment_plan.release_cfg.MIN_MEM_MB | default(16384) | int)
+    fail_msg: >-
+      Memory {{ ansible_facts.memtotal_mb }} MB is below MIN_MEM_MB
+      {{ deployment_plan.release_cfg.MIN_MEM_MB | default(16384) }} MB.
+
+- name: Require enough vCPUs
+  ansible.builtin.assert:
+    that: ansible_facts.processor_vcpus | int >= (deployment_plan.release_cfg.MIN_VCPU | default(2) | int)
+    fail_msg: >-
+      {{ ansible_facts.processor_vcpus }} vCPU is below MIN_VCPU {{ deployment_plan.release_cfg.MIN_VCPU | default(2) }}.
+
+- name: Require enough swap
+  ansible.builtin.assert:
+    that: ansible_facts.swaptotal_mb | int >= (deployment_plan.release_cfg.MIN_SWAP_MB | default(16000) | int)
+    fail_msg: >-
+      Swap {{ ansible_facts.swaptotal_mb }} MB is below MIN_SWAP_MB
+      {{ deployment_plan.release_cfg.MIN_SWAP_MB | default(16000) }} MB
+      (RAM {{ ansible_facts.memtotal_mb }} MB). Add swap on the host, or lower MIN_SWAP_MB in
+      config/releases/{{ deployment_plan.release }}.yml to your Oracle-sized value.
+
+- name: Require SELinux enforcing (security baseline)
   ansible.builtin.assert:
     that:
-      - >-
-        deployment_plan.release_cfg.SUPPORTED_OS
-        | selectattr('distribution', 'equalto', ansible_facts.distribution)
-        | selectattr('major_version', 'equalto', ansible_facts.distribution_major_version)
-        | list | length > 0
-      - ansible_facts.memtotal_mb | int >= (deployment_plan.release_cfg.MIN_MEM_MB | default(16384) | int)
-      - ansible_facts.processor_vcpus | int >= (deployment_plan.release_cfg.MIN_VCPU | default(2) | int)
-      - ansible_facts.swaptotal_mb | int >= (deployment_plan.release_cfg.MIN_SWAP_MB | default(16384) | int)
       - ansible_facts.selinux.status | default('disabled') == 'enabled'
       - ansible_facts.selinux.mode | default('permissive') == 'enforcing'
     fail_msg: >-
-      Unsupported or undersized host for {{ deployment_plan.release }} on
-      {{ ansible_facts.distribution }} {{ ansible_facts.distribution_major_version }};
-      qualify the OS/release combination and its security baseline first, or
-      add it to SUPPORTED_OS in config/releases/{{ deployment_plan.release }}.yml.
+      SELinux is {{ ansible_facts.selinux.status | default('unknown') }}/{{ ansible_facts.selinux.mode | default('unknown') }};
+      the approved baseline requires enabled/enforcing.
 
 - name: Read transparent hugepage setting
   ansible.builtin.slurp:

@@ -25,9 +25,9 @@ MIN_RU_VERSION_ON_MAJOR_VERSION:
   '9': 23
   '10': 32
 
-MIN_MEM_MB: 16384
+MIN_MEM_MB: 8000
 MIN_VCPU: 2
-MIN_SWAP_MB: 16384
+MIN_SWAP_MB: 16000
 
 # gridSetup.sh/db setup.sh response file schema suffix (the "v19.0.0" in
 # rspfmt_crsinstall_response_schema_v19.0.0). Confirmed against the 19c
