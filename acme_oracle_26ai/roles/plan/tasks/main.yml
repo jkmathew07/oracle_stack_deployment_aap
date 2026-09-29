@@ -26,8 +26,26 @@
       Keys that do not belong in 26ai: {{ plan_foreign_keys | join(', ') | default('none', true) }}.
       Start from the 26ai.yml shipped with this release and copy your values in.
   vars:
-    plan_missing_keys: "{{ ['SUPPORTED_OS', 'RESPONSE_FILE_SCHEMA_VERSION', 'GRID_IMAGE', 'DB_IMAGE', 'PREINSTALL_PACKAGE'] | difference(request_plan_base.release_cfg.keys() | list) }}"
-    plan_foreign_keys: "{{ ['GRID_MEDIA', 'DB_MEDIA', 'GRID_RU', 'DB_RU', 'OPATCH_ZIP', 'GRID_INTERIM_PATCHES', 'DB_INTERIM_PATCHES', 'BASE_VERSION', 'RU_NUMBER_INDEX'] | intersect(request_plan_base.release_cfg.keys() | list) }}"
+    plan_missing_keys: >-
+      {{ [
+        'SUPPORTED_OS',
+        'RESPONSE_FILE_SCHEMA_VERSION',
+        'GRID_IMAGE',
+        'DB_IMAGE',
+        'PREINSTALL_PACKAGE'
+      ] | difference(request_plan_base.release_cfg.keys() | list) }}
+    plan_foreign_keys: >-
+      {{ [
+        'GRID_MEDIA',
+        'DB_MEDIA',
+        'GRID_RU',
+        'DB_RU',
+        'OPATCH_ZIP',
+        'GRID_INTERIM_PATCHES',
+        'DB_INTERIM_PATCHES',
+        'BASE_VERSION',
+        'RU_NUMBER_INDEX'
+      ] | intersect(request_plan_base.release_cfg.keys() | list) }}
 
 - name: Validate 26ai gold image and response-file settings (fail closed on placeholders)
   ansible.builtin.assert:

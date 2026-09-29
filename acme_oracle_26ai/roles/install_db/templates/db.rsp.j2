@@ -1,6 +1,7 @@
-# Oracle AI Database 26ai - software-only home. 21c+ response-file key format.
+# Oracle AI Database 26ai - software-only home. 23ai/26ai key format: short keys, but the
+# version line keeps the oracle.install. prefix (as in the shipped template).
 # Qualify against <DB_HOME>/install/response/db_install.rsp of your image.
-responseFileVersion=/oracle/install/rspfmt_dbinstall_response_schema_v{{ deployment_plan.release_cfg.RESPONSE_FILE_SCHEMA_VERSION }}
+oracle.install.responseFileVersion=/oracle/install/rspfmt_dbinstall_response_schema_v{{ deployment_plan.release_cfg.RESPONSE_FILE_SCHEMA_VERSION }}
 installOption=INSTALL_DB_SWONLY
 UNIX_GROUP_NAME={{ oracle_users.oracle.primary_group }}
 INVENTORY_LOCATION={{ deployment_plan.release_cfg.ORA_INVENTORY }}

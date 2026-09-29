@@ -1,7 +1,8 @@
 # Oracle AI Database 26ai Grid Infrastructure - software-only (Oracle Restart
-# is configured afterwards with roothas.sh). 21c+ response-file key format.
+# is configured afterwards with roothas.sh). 23ai/26ai key format: short keys, but the
+# version line keeps the oracle.install. prefix (as in the shipped template).
 # Qualify against <GRID_HOME>/install/response/gridsetup.rsp of your image.
-responseFileVersion=/oracle/install/rspfmt_crsinstall_response_schema_v{{ deployment_plan.release_cfg.RESPONSE_FILE_SCHEMA_VERSION }}
+oracle.install.responseFileVersion=/oracle/install/rspfmt_crsinstall_response_schema_v{{ deployment_plan.release_cfg.RESPONSE_FILE_SCHEMA_VERSION }}
 INVENTORY_LOCATION={{ deployment_plan.release_cfg.ORA_INVENTORY }}
 installOption=CRS_SWONLY
 ORACLE_BASE={{ deployment_plan.release_cfg.GRID_BASE }}

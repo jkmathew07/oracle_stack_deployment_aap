@@ -58,6 +58,43 @@
         group: oinstall
         mode: '0600'
 
+    # Fail with a clear message (before the installer runs) if this image's
+    # shipped template does not know one of our keys - e.g. a future image
+    # renames them. Skipped with a warning if the image ships no template.
+    - name: Inspect the response-file template shipped in the Grid image
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.GRID_HOME }}/install/response/gridsetup.rsp"
+      register: install_grid_shipped_rsp_stat
+
+    - name: Read the shipped template and our response file
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ deployment_plan.release_cfg.GRID_HOME }}/install/response/gridsetup.rsp"
+        - "{{ deployment_plan.release_cfg.GRID_HOME }}/grid.rsp"
+      register: install_grid_rsp_files
+      no_log: true
+      when: install_grid_shipped_rsp_stat.stat.exists
+
+    - name: Require every key we set to exist in the image's template
+      ansible.builtin.assert:
+        that: install_grid_rsp_unknown_keys | length == 0
+        fail_msg: >-
+          {{ deployment_plan.release_cfg.GRID_HOME }}/grid.rsp uses keys this image's gridsetup.rsp
+          does not define: {{ install_grid_rsp_unknown_keys | join(', ') }}. Update grid.rsp.j2 in acme.oracle_26ai.
+      vars:
+        install_grid_rsp_unknown_keys: >-
+          {{ (install_grid_rsp_files.results[1].content | b64decode
+                | regex_findall('(?m)^([A-Za-z_.]+)='))
+             | difference(install_grid_rsp_files.results[0].content | b64decode
+                | regex_findall('(?m)^([A-Za-z_.]+)=')) }}
+      when: install_grid_shipped_rsp_stat.stat.exists
+
+    - name: Warn that the shipped template could not be compared
+      ansible.builtin.debug:
+        msg: "No install/response/gridsetup.rsp in the Grid image; response-file keys not pre-checked."
+      when: not install_grid_shipped_rsp_stat.stat.exists
+
     - name: Install Grid software from the gold image
       ansible.builtin.command:
         argv:
