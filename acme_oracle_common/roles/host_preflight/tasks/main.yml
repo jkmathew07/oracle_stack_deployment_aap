@@ -111,7 +111,7 @@
 # Media comes from Oracle Support. An artifact with a sha256 in the release
 # file is verified against it (use the value from the MOS download page); an
 # empty sha256 means "not pinned" and the archive is instead tested for
-# completeness with `unzip -tq`, which catches truncated/corrupt copies.
+# completeness (python zipfile CRC test), which catches truncated/corrupt copies.
 # Either way a malformed sha256 (e.g. a placeholder) fails closed.
 - name: Inspect requested Oracle media on the managed host
   ansible.builtin.stat:
@@ -139,10 +139,16 @@
   loop_control:
     label: "{{ item.item.label }}"
 
+# Uses the target's Python (always present for Ansible) instead of unzip,
+# which the baseline installs only AFTER this preflight. Reads every member
+# and checks its CRC; a truncated archive fails to open, a damaged member is
+# reported as corrupted.
 - name: Test completeness of unpinned media archives
   ansible.builtin.command:
-    argv: [unzip, -tq, "{{ item.item.path }}"]
+    argv: ["{{ ansible_facts.python.executable | default('/usr/bin/python3') }}", -m, zipfile, -t, "{{ item.item.path }}"]
+  register: host_preflight_zip_test
   changed_when: false
+  failed_when: host_preflight_zip_test.rc != 0 or 'corrupted' in host_preflight_zip_test.stdout
   loop: "{{ host_preflight_artifacts.results }}"
   loop_control:
     label: "{{ item.item.label }}"
