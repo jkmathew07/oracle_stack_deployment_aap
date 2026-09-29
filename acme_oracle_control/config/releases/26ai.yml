@@ -25,10 +25,9 @@ GRID_BASE: /u01/app/grid
 DB_HOME_PATTERN: /u01/app/oracle/product/{RU_VERSION}/oracle
 DB_BASE: /u01/app/oracle
 
-
-GRID_MEDIA:
+GRID_IMAGE:
   path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/grid/p39581618_230000_Linux-x86-64.zip
   sha256: ''
-DB_MEDIA:
+DB_IMAGE:
   path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/oracle/p39581612_230000_Linux-x86-64.zip
   sha256: ''
