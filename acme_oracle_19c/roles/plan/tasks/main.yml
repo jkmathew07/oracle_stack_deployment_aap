@@ -13,6 +13,20 @@
       - patch in ['none', 'grid', 'db', 'both']
     fail_msg: 19c requests need a 19c release file and patch scope none/grid/db/both.
 
+- name: Require the 19c release-file keys (and none from the other release)
+  ansible.builtin.assert:
+    that:
+      - plan_missing_keys | length == 0
+      - plan_foreign_keys | length == 0
+    fail_msg: >-
+      config/releases/19c.yml is not in the 19c format.
+      Missing keys: {{ plan_missing_keys | join(', ') | default('none', true) }}.
+      Keys that do not belong in 19c: {{ plan_foreign_keys | join(', ') | default('none', true) }}.
+      Start from the 19c.yml shipped with this release and copy your values in.
+  vars:
+    plan_missing_keys: "{{ ['SUPPORTED_OS', 'RESPONSE_FILE_SCHEMA_VERSION', 'BASE_VERSION', 'RU_NUMBER_INDEX', 'GRID_MEDIA', 'DB_MEDIA', 'GRID_RU', 'DB_RU', 'OPATCH_ZIP', 'PREINSTALL_PACKAGE'] | difference(request_plan_base.release_cfg.keys() | list) }}"
+    plan_foreign_keys: "{{ ['GRID_IMAGE', 'DB_IMAGE'] | intersect(request_plan_base.release_cfg.keys() | list) }}"
+
 - name: Validate 19c version fields
   ansible.builtin.assert:
     that:
