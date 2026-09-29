@@ -8,9 +8,24 @@
       ansible.builtin.include_role:
         name: acme.oracle_common.stage_guard
   tasks:
+    - name: Check for a pending reboot recorded by the baseline
+      ansible.builtin.stat:
+        path: /var/log/oracle-automation/reboot-required
+      register: reboot_marker
+      become: true
+
     - name: Reboot and verify host connectivity
       ansible.builtin.reboot:
         reboot_timeout: 900
         post_reboot_delay: 30
+        msg: "Reboot by Oracle automation ({{ deployment_plan.ticket }}) after baseline changes"
       become: true
-      when: baseline_reboot_required | default(false) | bool
+      when: reboot_marker.stat.exists or (baseline_reboot_required | default(false) | bool)
+      register: reboot_done
+
+    - name: Clear the pending-reboot marker after a successful reboot
+      ansible.builtin.file:
+        path: /var/log/oracle-automation/reboot-required
+        state: absent
+      become: true
+      when: reboot_done is changed

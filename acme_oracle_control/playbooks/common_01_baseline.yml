@@ -18,6 +18,28 @@
         name: acme.oracle_common.configure_thp
       when: deployment_plan.install_grid or deployment_plan.install_db
 
+    # The reboot decision lives ON THE HOST, so it works the same from the
+    # command line and AAP, and survives a failed or re-run baseline.
+    - name: Create the automation state directory
+      ansible.builtin.file:
+        path: /var/log/oracle-automation
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      become: true
+      when: configure_baseline_reboot_required | default(false) | bool
+
+    - name: Record a pending reboot on the host
+      ansible.builtin.copy:
+        dest: /var/log/oracle-automation/reboot-required
+        content: "Set by Oracle baseline for {{ deployment_plan.ticket }}\n"
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      when: configure_baseline_reboot_required | default(false) | bool
+
     - name: Publish reboot requirement
       ansible.builtin.set_stats:
         per_host: false
