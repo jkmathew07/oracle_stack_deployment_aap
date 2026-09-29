@@ -59,10 +59,47 @@
       in oracle_os_packages_local — skipping local package installation.
   when: configure_baseline_local_packages | length == 0
 
+# GPG checking of the staged Oracle RPMs is controlled by
+# oracle_local_rpm_gpg_check (default false: the RPMs are downloaded from
+# Oracle by admins and staged on a controlled share; preflight still verifies
+# their internal digests). When true, Oracle's signing key is imported from a
+# staged key file pinned by fingerprint, and dnf verifies the signature.
+- name: Require pinned Oracle RPM signing keys when staged Oracle RPMs are used
+  ansible.builtin.assert:
+    that:
+      - oracle_rpm_gpg_keys | default([]) | length > 0
+      - item.file is match('^/[A-Za-z0-9._/-]+$')
+      - (item.fingerprint | default('') | replace(' ', '') | upper) is match('^[0-9A-F]{40}$')
+    fail_msg: >-
+      Set oracle_rpm_gpg_keys in playbooks/group_vars/all/os_packages.yml: each entry needs the
+      staged key file path and its 40-hex fingerprint (see the comment there).
+  # An empty list still runs once (with {}), so "check on, no keys" fails.
+  loop: "{{ oracle_rpm_gpg_keys if (oracle_rpm_gpg_keys | default([]) | length > 0) else [{}] }}"
+  loop_control:
+    label: "{{ item.file | default('oracle_rpm_gpg_keys not set') }}"
+  when:
+    - configure_baseline_local_packages | length > 0
+    - oracle_local_rpm_gpg_check | default(false) | bool
+
+- name: Import Oracle RPM signing keys from the staged files (fingerprint-pinned)
+  ansible.builtin.rpm_key:
+    key: "{{ item.file }}"
+    fingerprint: "{{ item.fingerprint | replace(' ', '') | upper }}"
+    state: present
+  loop: "{{ oracle_rpm_gpg_keys | default([]) }}"
+  loop_control:
+    label: "{{ item.file }}"
+  become: true
+  register: configure_baseline_oracle_keys
+  when:
+    - configure_baseline_local_packages | length > 0
+    - oracle_local_rpm_gpg_check | default(false) | bool
+
 - name: Install packages staged on the shared local filesystem
   ansible.builtin.dnf:
     name: "{{ oracle_os_packages_local_dir ~ item.filename }}"
     state: present
+    disable_gpg_check: "{{ not (oracle_local_rpm_gpg_check | default(false) | bool) }}"
   loop: "{{ configure_baseline_local_packages }}"
   loop_control:
     label: "{{ item.filename }}"

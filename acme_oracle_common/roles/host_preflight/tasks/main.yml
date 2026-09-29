@@ -124,17 +124,25 @@
   register: host_preflight_artifacts
   become: true
 
-- name: Require present media and, where pinned, a matching SHA-256
+- name: Require each media archive to exist
   ansible.builtin.assert:
     that:
       - item.item.path is match('^/[A-Za-z0-9._/-]+[.]zip$')
       - item.stat.isreg | default(false)
       - item.stat.size | default(0) > 0
+    fail_msg: "{{ item.item.label }} not found or empty: {{ item.item.path }}"
+  loop: "{{ host_preflight_artifacts.results }}"
+  loop_control:
+    label: "{{ item.item.label }}"
+
+- name: Require a matching SHA-256 where one is pinned (optional)
+  ansible.builtin.assert:
+    that:
       - (item.item.sha256 | default('', true)) == '' or (item.item.sha256 is match('^[0-9a-f]{64}$'))
       - (item.item.sha256 | default('', true)) == '' or (item.stat.checksum | default('') == item.item.sha256)
     fail_msg: >-
-      {{ item.item.label }} ({{ item.item.path }}) is missing, empty, or does not match its pinned
-      SHA-256. Leave sha256 empty to skip pinning, or paste the value from the Oracle Support download page.
+      {{ item.item.label }} ({{ item.item.path }}): pinned sha256 is malformed or does not match
+      (got {{ item.stat.checksum | default('n/a') }}). Fix it, or set sha256: '' to skip pinning.
   loop: "{{ host_preflight_artifacts.results }}"
   loop_control:
     label: "{{ item.item.label }}"
@@ -175,17 +183,61 @@
   register: host_preflight_local_package_checks
   become: true
 
-- name: Require present packages and, where pinned, a matching SHA-256
+- name: Require each staged package to exist
   ansible.builtin.assert:
     that:
       - item.item.filename is match('^[A-Za-z0-9._+-]+[.]rpm$')
       - item.stat.isreg | default(false)
-      - (item.item.sha256 | default('', true)) == '' or (item.item.sha256 is match('^[0-9a-f]{64}$'))
-      - (item.item.sha256 | default('', true)) == '' or (item.stat.checksum | default('') == item.item.sha256)
-    fail_msg: "Missing, or not matching its pinned SHA-256: {{ item.item.filename }}"
+    fail_msg: >-
+      Package not found: {{ oracle_os_packages_local_dir ~ item.item.filename }}.
+      Check oracle_os_packages_local_dir (must end with /) and the filename in
+      playbooks/group_vars/all/os_packages.yml.
   loop: "{{ host_preflight_local_package_checks.results | default([]) }}"
   loop_control:
     label: "{{ item.item.filename }}"
+
+- name: Require a matching SHA-256 where one is pinned (optional)
+  ansible.builtin.assert:
+    that:
+      - (item.item.sha256 | default('', true)) == '' or (item.item.sha256 is match('^[0-9a-f]{64}$'))
+      - (item.item.sha256 | default('', true)) == '' or (item.stat.checksum | default('') == item.item.sha256)
+    fail_msg: >-
+      {{ item.item.filename }}: pinned sha256 is malformed or does not match the file
+      (got {{ item.stat.checksum | default('n/a') }}). Fix it, or set sha256: '' to skip pinning.
+  loop: "{{ host_preflight_local_package_checks.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.filename }}"
+
+- name: Inspect staged Oracle RPM signing keys
+  ansible.builtin.stat:
+    path: "{{ item.file | default('') }}"
+  loop: "{{ oracle_rpm_gpg_keys | default([]) }}"
+  loop_control:
+    label: "{{ item.file | default('unset') }}"
+  register: host_preflight_gpg_keys
+  become: true
+  when:
+    - host_preflight_local_packages | length > 0
+    - oracle_local_rpm_gpg_check | default(false) | bool
+
+- name: Require the Oracle RPM signing keys to be staged and pinned
+  ansible.builtin.assert:
+    that:
+      - oracle_rpm_gpg_keys | default([]) | length > 0
+      - host_preflight_gpg_keys.results | default([]) | rejectattr('stat.isreg', 'defined') | list | length == 0
+      - host_preflight_gpg_keys.results | default([]) | selectattr('stat.isreg', 'defined') | rejectattr('stat.isreg') | list | length == 0
+      - >-
+        oracle_rpm_gpg_keys | default([]) | map(attribute='fingerprint', default='')
+        | map('replace', ' ', '') | map('upper') | reject('match', '^[0-9A-F]{40}$') | list | length == 0
+    fail_msg: >-
+      Staged Oracle RPMs need oracle_rpm_gpg_keys in playbooks/group_vars/all/os_packages.yml: every
+      key file must exist on the host and carry a 40-hex fingerprint. Missing files:
+      {{ host_preflight_gpg_keys.results | default([]) | rejectattr('stat.isreg', 'defined') | map(attribute='item.file')
+         | list + (host_preflight_gpg_keys.results | default([]) | selectattr('stat.isreg', 'defined') | rejectattr('stat.isreg')
+         | map(attribute='item.file') | list) }}
+  when:
+    - host_preflight_local_packages | length > 0
+    - oracle_local_rpm_gpg_check | default(false) | bool
 
 - name: Verify RPM internal digests of locally staged packages
   ansible.builtin.command:
