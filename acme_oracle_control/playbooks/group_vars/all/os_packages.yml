@@ -11,7 +11,7 @@ oracle_os_packages:
   - libstdc++
   - make
   - unzip
-  - systat
+  - sysstat
   - libXau
   - libXi
   - libXtst
