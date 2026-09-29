@@ -44,6 +44,3 @@ oracle_os_packages_local:
       release: '26ai'
       filename: oracle-ai-database-preinstall-26ai-1.0-2.el10.x86_64.rpm
       sha256: ''
-oracle_rpm_gpg_keys:
-  - file: /mnt/nfs/nfsshare/oracle_pre_install_rpms/RPM-GPG-KEY-oracle-ol10
-    fingerprint: 'XXXX XXXX XXXX XXXX XXXX  XXXX XXXX XXXX XXXX XXXX'
