@@ -1,4 +1,5 @@
 ---
+RELEASE: '26ai'
 
 SUPPORTED_OS:
   - { distribution: OracleLinux, major_version: '9' }
@@ -6,18 +7,14 @@ SUPPORTED_OS:
   - { distribution: OracleLinux, major_version: '10' }
   - { distribution: RedHat, major_version: '10' }
 
-
-MIN_RU_VERSION_ON_MAJOR_VERSION: {}
-
 MIN_MEM_MB: 8000
 MIN_VCPU: 2
 MIN_SWAP_MB: 16000
 
 RESPONSE_FILE_SCHEMA_VERSION: '23.0.0'
-RELEASE: '26ai'
-RU_VERSION: '26.6.0'
-BASE_VERSION: '26.3.0'
-RU_NUMBER_INDEX: 2
+
+# Must equal the gold image version (oraversion -compositeVersion prefix).
+RU_VERSION: '23.26.3'
 
 ORA_INVENTORY: /u01/app/oraInventory
 GRID_HOME_PATTERN: /u01/app/{RU_VERSION}/grid
@@ -31,3 +28,6 @@ GRID_IMAGE:
 DB_IMAGE:
   path: /mnt/nfs/nfsshare/ora_binaries/golden_images/23.26.3/oracle/p39581612_230000_Linux-x86-64.zip
   sha256: ''
+
+PREINSTALL_PACKAGE:
+  name: oracle-ai-database-preinstall-26ai
