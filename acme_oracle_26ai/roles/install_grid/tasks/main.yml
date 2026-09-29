@@ -39,8 +39,7 @@
       loop:
         - {path: "{{ deployment_plan.release_cfg.GRID_HOME }}", owner: grid}
         - {path: "{{ deployment_plan.release_cfg.GRID_BASE }}", owner: grid}
-        - {path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}", owner: 
-        }
+        - {path: "{{ deployment_plan.release_cfg.ORA_INVENTORY }}", owner: grid}
 
     - name: Unpack the Grid gold image
       ansible.builtin.unarchive:
