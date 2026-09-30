@@ -81,11 +81,14 @@
           - -waitforcompletion
       become: true
       become_user: grid
+      failed_when: >-
+        install_grid_installer_result.rc not in [0, 6]
+        or 'Successfully Setup Software' not in (install_grid_installer_result.stdout | default(''))
+      register: install_grid_installer_result
       changed_when: true
       async: 7200
       poll: 30
       when: deployment_plan.patch_grid
-      register: install_grid_grid_setup_with_ru
 
     - name: Install Grid from base media (only allowed when RU_VERSION == BASE_VERSION)
       ansible.builtin.command:
@@ -97,6 +100,10 @@
           - -waitforcompletion
       become: true
       become_user: grid
+      failed_when: >-
+        install_grid_installer_result.rc not in [0, 6]
+        or 'Successfully Setup Software' not in (install_grid_installer_result.stdout | default(''))
+      register: install_grid_installer_result
       changed_when: true
       async: 7200
       poll: 30

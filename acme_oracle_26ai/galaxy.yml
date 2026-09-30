@@ -1,6 +1,6 @@
 namespace: acme
 name: oracle_26ai
-version: 1.0.3
+version: 1.0.4
 readme: README.md
 authors: [Enterprise Automation Team]
 description: Oracle AI Database 26ai Restart/DB software install from Oracle-patched gold images into RU-versioned homes

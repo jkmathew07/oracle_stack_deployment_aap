@@ -121,6 +121,8 @@
         msg: "No install/response/db_install.rsp in the DB image; response-file keys not pre-checked."
       when: not install_db_shipped_rsp_stat.stat.exists
 
+    # rc 6 = success with IGNORABLE prerequisite warnings; accepted only
+    # together with the installer's success line.
     - name: Install DB software from the gold image
       ansible.builtin.command:
         argv:
@@ -131,15 +133,39 @@
           - -waitForCompletion
       become: true
       become_user: oracle
+      register: install_db_setup
       changed_when: true
+      failed_when: >-
+        install_db_setup.rc not in [0, 6]
+        or 'Successfully Setup Software' not in (install_db_setup.stdout | default(''))
       async: 7200
       poll: 30
 
-    - name: Register the new central inventory (first Oracle install on host)
+    - name: Show installer warnings (rc 6)
+      ansible.builtin.debug:
+        msg: "{{ install_db_setup.stdout_lines | select('search', 'PRV|INS-|Error message') | list }}"
+      when: install_db_setup.rc | default(0) == 6
+
+# ── Root scripts, driven by host state so an interrupted run is completed ──
+- name: Run DB home root configuration where not yet done
+  when: deployment_plan.install_db
+  become: true
+  block:
+    - name: Inspect central inventory registration (/etc/oraInst.loc)
+      ansible.builtin.stat:
+        path: /etc/oraInst.loc
+      register: install_db_orainst_loc
+
+    - name: Register the central inventory (first Oracle install on host)
       ansible.builtin.command:
         argv: ["{{ deployment_plan.release_cfg.ORA_INVENTORY }}/orainstRoot.sh"]
       changed_when: true
-      when: not install_db_inventory_stat.stat.exists
+      when: not install_db_orainst_loc.stat.exists
+
+    - name: Inspect DB home root-script marker
+      ansible.builtin.stat:
+        path: "{{ deployment_plan.release_cfg.DB_HOME }}/.automation-root-sh-done"
+      register: install_db_root_marker
 
     - name: Run DB Home root script
       ansible.builtin.command:
@@ -147,6 +173,16 @@
       changed_when: true
       async: 1800
       poll: 30
+      when: not install_db_root_marker.stat.exists
+
+    - name: Record that root.sh completed for this home
+      ansible.builtin.copy:
+        dest: "{{ deployment_plan.release_cfg.DB_HOME }}/.automation-root-sh-done"
+        content: "root.sh completed by Oracle automation\n"
+        owner: root
+        group: root
+        mode: '0644'
+      when: not install_db_root_marker.stat.exists
 
 - name: Verify Database executable exists
   ansible.builtin.stat:

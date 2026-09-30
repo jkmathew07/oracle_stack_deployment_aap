@@ -171,11 +171,22 @@
   become: true
   register: configure_baseline_baseline_users
 
+# Our files are named 99-zz-* so they load AFTER the Oracle preinstall RPM's
+# 99-oracle-*-sysctl.conf: the project's approved values win at every boot.
+- name: Remove kernel settings files from earlier baseline versions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/sysctl.d/90-oracle.conf
+    - /etc/sysctl.d/90-oracle-hugepages.conf
+  become: true
+
 - name: Apply kernel parameters using sysctl
   ansible.posix.sysctl:
     name: "{{ item.name }}"
     value: "{{ item.value }}"
-    sysctl_file: /etc/sysctl.d/90-oracle.conf
+    sysctl_file: /etc/sysctl.d/99-zz-oracle.conf
     state: present
     reload: true
   loop: "{{ kernel_parameters }}"
@@ -214,7 +225,7 @@
   ansible.posix.sysctl:
     name: vm.nr_hugepages
     value: "{{ configure_baseline_hugepages_desired }}"
-    sysctl_file: /etc/sysctl.d/90-oracle-hugepages.conf
+    sysctl_file: /etc/sysctl.d/99-zz-oracle-hugepages.conf
     state: present
     reload: true
   become: true

@@ -95,6 +95,8 @@
         msg: "No install/response/gridsetup.rsp in the Grid image; response-file keys not pre-checked."
       when: not install_grid_shipped_rsp_stat.stat.exists
 
+    # rc 6 = "Successfully Setup Software with warning(s)" (only IGNORABLE
+    # prerequisites failed). Accepted only together with the success line.
     - name: Install Grid software from the gold image
       ansible.builtin.command:
         argv:
@@ -105,15 +107,49 @@
           - -waitforcompletion
       become: true
       become_user: grid
+      register: install_grid_setup
       changed_when: true
+      failed_when: >-
+        install_grid_setup.rc not in [0, 6]
+        or 'Successfully Setup Software' not in (install_grid_setup.stdout | default(''))
       async: 7200
       poll: 30
+
+    - name: Show installer warnings (rc 6)
+      ansible.builtin.debug:
+        msg: "{{ install_grid_setup.stdout_lines | select('search', 'PRV|INS-|Error message') | list }}"
+      when: install_grid_setup.rc | default(0) == 6
+
+# ── Root configuration, driven by host state (not only first install) ─────
+# A run that stopped after gridSetup leaves a registered home whose root
+# scripts never ran; these checks make the next run finish the job.
+- name: Configure Oracle Restart as root where not yet done
+  when: deployment_plan.install_grid
+  become: true
+  block:
+    - name: Inspect central inventory registration (/etc/oraInst.loc)
+      ansible.builtin.stat:
+        path: /etc/oraInst.loc
+      register: install_grid_orainst_loc
 
     - name: Run inventory root script
       ansible.builtin.command:
         argv: ["{{ deployment_plan.release_cfg.ORA_INVENTORY }}/orainstRoot.sh"]
       changed_when: true
-      when: not install_grid_inventory_stat.stat.exists
+      when: not install_grid_orainst_loc.stat.exists
+
+    - name: Inspect Oracle Restart registration (/etc/oracle/olr.loc)
+      ansible.builtin.slurp:
+        src: /etc/oracle/olr.loc
+      register: install_grid_olr
+      failed_when: false
+
+    - name: Determine whether Oracle Restart is configured from this home
+      ansible.builtin.set_fact:
+        install_grid_has_configured: >-
+          {{ (install_grid_olr.content | default('') | b64decode
+              | regex_findall('(?m)^crs_home=(\S+)\s*$') | first | default('')
+              | regex_replace('/+$', '')) == deployment_plan.release_cfg.GRID_HOME }}
 
     - name: Run Grid root script
       ansible.builtin.command:
@@ -121,6 +157,7 @@
       changed_when: true
       async: 3600
       poll: 30
+      when: not install_grid_has_configured
 
     - name: Configure Oracle Restart
       ansible.builtin.command:
@@ -128,6 +165,7 @@
       changed_when: true
       async: 3600
       poll: 30
+      when: not install_grid_has_configured
 
 - name: Verify Oracle Restart service
   ansible.builtin.command:

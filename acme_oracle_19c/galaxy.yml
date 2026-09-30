@@ -1,6 +1,6 @@
 namespace: acme
 name: oracle_19c
-version: 1.0.1
+version: 1.0.3
 readme: README.md
 authors: [Enterprise Automation Team]
 description: Oracle 19c Restart/DB software install with -applyRU into RU-versioned homes, RU verification and interim patching

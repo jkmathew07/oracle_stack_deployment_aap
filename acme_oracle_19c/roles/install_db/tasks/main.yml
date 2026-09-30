@@ -107,6 +107,10 @@
           - -waitForCompletion
       become: true
       become_user: oracle
+      failed_when: >-
+        install_db_installer_result.rc not in [0, 6]
+        or 'Successfully Setup Software' not in (install_db_installer_result.stdout | default(''))
+      register: install_db_installer_result
       changed_when: true
       async: 7200
       poll: 30
@@ -122,6 +126,10 @@
           - -waitForCompletion
       become: true
       become_user: oracle
+      failed_when: >-
+        install_db_installer_result.rc not in [0, 6]
+        or 'Successfully Setup Software' not in (install_db_installer_result.stdout | default(''))
+      register: install_db_installer_result
       changed_when: true
       async: 7200
       poll: 30
